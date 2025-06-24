@@ -1,0 +1,682 @@
+---
+theme: lx
+size: 16:9
+paginate: true
+
+# FIXME: <footer> に copyright とページ番号を入れてしまったので、footer が空だとそれらが出なくなる
+
+footer: " "
+---
+
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+
+# ISUCON 研修おかわり会
+
+## パフォーマンスチューニングを始めよう
+
+**[paki & yata]**
+
+---
+
+## 本日の流れ（アジェンダ）
+
+1.  (10 分) Part 1: ハンズオン環境構築
+2.  (20 分) Part 3: 改善 ② データベース (インデックス)
+3.  (25 分) Part 4: 改善 ① アプリケーション (N+1 問題)
+4.  (15 分) Part 5: 改善 ③ Web サーバー (静的ファイル)
+5.  (10 分) まとめと Q&A
+
+インタラクティブに進めていきましょう！
+**講義** → **グループディスカッション** → **ハンズオン**
+
+---
+
+## 🧑‍💻 自己紹介
+
+- **講師:** [あなたの名前]
+- **経歴:** [あなたの経歴（例：Web 系企業で SRE/バックエンドエンジニアとして X 年...）]
+- **ISUCON 戦歴:** [あなたの ISUCON 戦歴（例：ISUCON X, Y, Z 出場、最高順位...）]
+
+---
+
+## 🤝 [グループ] 自己紹介タイム (3 分)**[これはグループワークの直前でええな]**
+
+- お名前（ハンドルネーム）
+- ISUCON 参加経験はありますか？
+- 今日学びたいこと
+
+同じグループの方と、軽くで良いので話してみましょう！
+
+---
+
+## ISUCON とは？
+
+**I**ikanjini **S**peed **U**p **CON**test
+
+> お題となる Web サービスを決められたレギュレーションの中で限界まで高速化を図るチューニングバトル
+
+- DB やアプリケーション、OS などをガチャガチャする
+- 仕様さえ守っていれば何でもあり！**とにかく速く！**
+- バックエンド、インフラの知識を総動員して立ち向かう競技
+
+---
+
+## 🎯 本日のゴール
+
+- **MUST**
+  - ISUCON の基本的な流れ **計測 → 特定 → 改善** のサイクルを理解する
+  - `private-isu` を題材に、自力で **1 つ以上** の改善を体験する
+- **BETTER**
+  - ログを読み解き、適切な改善アクションを **自分で考えて実行できる** ための基礎を築く
+
+---
+
+## Part 1: ハンズオン環境構築
+
+(15 分)
+
+---
+
+## 環境構築について
+
+- 本日は **AWS** 上に、ISUCON の練習環境を構築します。
+- **CloudFormation** というサービスを使い、全員が同じ構成のサーバーを簡単に作成します。
+  - **メリット:** 手順が少なく、誰がやっても同じ環境が作れる！
+
+**構成図**
+![width:800px](https://i.imgur.com/L5aYx2U.png)
+
+---
+
+## [ハンズオン] 環境構築手順 ①
+
+1.  **AWS マネジメントコンソールにログイン**
+    - 講師から指定された URL にアクセスし、ご自身の AWS アカウントでログインしてください。
+    - リージョンが **東京 (ap-northeast-1)** になっていることを確認してください。
+
+![スクリーンショット: AWSコンソール上部のリージョン選択部分](https://i.imgur.com/L7p2JqA.png)
+
+---
+
+## [ハンズオン] 環境構築手順 ②
+
+2.  **CloudFormation スタックの作成**
+    - [講師が用意した CloudFormation テンプレートの URL] をクリックします。
+    - スタックの名前を適当に決めます (例: `isucon-handson-[YOUR_NAME]`)
+    - 他はデフォルトのままで OK です。
+    - 一番下までスクロールし、「AWS CloudFormation によって IAM リソースが作成される場合があることを承認します。」にチェックを入れ、**[スタックの作成]** をクリックします。
+
+![スクリーンショット: CloudFormationのスタック作成画面](https://i.imgur.com/0i1gTz5.png)
+
+---
+
+## [ハンズオン] 環境構築手順 ③
+
+3.  **IP アドレスの確認**
+    - ステータスが `CREATE_IN_PROGRESS` から `CREATE_COMPLETE` になるまで待ちます（3〜5 分程度）。
+    - 作成されたスタックを選択し、**[出力]** タブをクリックします。
+    - `PublicIP` の値 (例: `54.250.xxx.xxx`) をコピーしておきます。これがあなたのサーバーの IP アドレスです。
+
+![スクリーンショット: CloudFormationの出力タブ](https://i.imgur.com/1Gj6q5i.png)
+
+---
+
+## [ハンズオン] 環境構築手順 ④
+
+4.  **サーバーへ SSH 接続**
+    - ターミナルを開き、以下のコマンドでサーバーに接続します。
+    - `path/to/your/private_key.pem` の部分はご自身の秘密鍵のパスに置き換えてください。
+
+```bash
+# 事前にダウンロードしておいた秘密鍵のパーミッションを変更
+chmod 600 path/to/your/private_key.pem
+
+# SSH接続
+ssh -i path/to/your/private_key.pem ec2-user@[コピーしたIPアドレス]
+```
+
+---
+
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+
+## Part 2: 計測、特定、改善
+
+### ISUCON の基本的な流れを勉強しよう
+
+(20 分)
+
+---
+
+## 推測するな、計測せよ (Don't guess, measure.)
+
+パフォーマンスチューニングの鉄則です。
+
+- **なぜ？**
+  - 勘や思い込みでの修正は、**的外れ**だったり、時には**悪化**させることさえある。
+- **どうするか**
+  - 今一番ボトルネックになっている場所を見つけて、そこに適切なアプローチを取る
+  - 計測 → 特定 → 改善のサイクルを一つずつ積み上げていく
+
+---
+
+## 基本的な２つのボトルネック
+
+- データベース
+  - データの取得、挿入がボトルネックになりがち
+  - 一つ一つは軽くても蓄積するとかなりのボトルネックに
+  - 0.1 秒で処理できるクエリも 10000 回叩かれたら 10 秒かかる
+- アプリケーション
+  - これも実質データベースのボトルネック
+  - データを無駄に取得していたり、何回も取得しているとレスポンスが遅くなる
+
+---
+
+## じゃあどっちが問題かってどうすれば分かる？
+
+- まずは top コマンドで CPU の使用量を見よう
+- CPU の使用料が多い方に問題がありそう！と見当を付けられる
+
+---
+
+## 実際に見てみよう
+
+---
+
+## 計測の三種の神器
+
+本日は代表的な 2 つのツールを使います。
+
+1.  **アクセスログ解析: `alp`**
+    - どのエンドポイント（URL）が **遅いか** / **たくさん呼ばれているか** を教えてくれる。
+2.  **スロークエリログ解析: `pt-query-digest`**
+    - どの SQL クエリが **実行に時間がかかっているか** を教えてくれる。
+3.  **(今回は使いませんが) アプリケーションのプロファイラ**
+    - どの関数/処理が **CPU やメモリを消費しているか** を教えてくれる。
+
+---
+
+## [ハンズオン] 計測の準備
+
+まず、初期状態の性能を測ってみましょう。
+
+1.  **ログファイルをリセット**
+
+    - 過去のログを消して、ベンチマーク実行中のログだけを記録できるようにします。
+
+    ```bash
+    # SSHしているサーバー上で実行
+    sudo truncate -s 0 /var/log/nginx/access.log
+    sudo truncate -s 0 /var/log/mysql/mysql-slow.log
+    ```
+
+---
+
+2.  **ベンチマーカーの実行**
+
+    ```bash
+    # ベンチマーカーのコマンド
+    ```
+
+3.  **初期スコアを確認**
+    - おそらく `3,000` 点前後のスコアが出るはずです。この数値を覚えておきましょう。
+
+---
+
+## [ハンズオン] アクセスログ解析 with `alp`
+
+どの **Web リクエスト** がボトルネックか見てみましょう。
+
+```bash
+# alpコマンドの実行
+# nginxのログフォーマットに合わせてltsv形式でパース
+alp json --file /var/log/nginx/access.log --sort sum -r
+```
+
+---
+
+## 出力例
+
+```
++-------+-----+-----+-----+-----+-----+-------+--------+------------------+
+| COUNT | 1% | 50% | 99% | AVG | MAX | SUM | METHOD | URI |
++-------+-----+-----+-----+-----+-----+-------+--------+------------------+
+| 1800 | ... | ... | ... | 0.82| 1.51| 1476.0| GET | / |
+| 1200 | ... | ... | ... | 0.55| 1.10| 660.0| GET | /posts?offset=10 |
+| 600 | ... | ... | ... | 0.30| 0.80| 180.0| POST | /login |
+| ... | ... | ... | ... | ... | ... | ... | ... | ... |
++-------+-----+-----+-----+-----+-----+-------+--------+------------------+
+```
+
+SUM (合計時間) や AVG (平均時間) が大きいところが怪しい！
+
+---
+
+## [ハンズオン] スロークエリログ解析 with pt-query-digest
+
+どの SQL クエリ がボトルネックか見てみましょう。
+
+```bash
+# pt-query-digest コマンドの実行
+sudo pt-query-digest /var/log/mysql/mysql-slow.log
+```
+
+---
+
+## 出力例 (一部抜粋):
+
+```
+# Query 1: 0.01 QPS, 0.01x concurrency, ID 0x...
+# This item is included in the report because its total time is ...
+# Scores: V/M = 0.01
+# Time range: ... to ...
+# Attribute    pct   total     min     max     avg     ...
+# ============ === ======= ======= ======= ======= =======
+# Count         50    1800
+# Exec time     63   5225s      2s      4s      3s   ...
+# ...
+SELECT `posts`.* FROM `posts` ORDER BY `created_at` DESC LIMIT 10 OFFSET 10;
+
+# Query 2: ...
+SELECT `comments`.* FROM `comments` WHERE `post_id` = ? ORDER BY `created_at` DESC;
+```
+
+Exec time (合計実行時間) が大きいクエリが怪しい！
+
+---
+
+## [グループ] ボトルネックはどこだ？ (5 分)
+
+alp の結果と pt-query-digest の結果を見てみましょう。
+最も改善効果が高そうなのはどのリクエスト/クエリですか？
+なぜそう思いましたか？
+グループで議論して、仮説を立ててみてください。
+議論のヒント:
+
+/ (トップページ) の表示が遅い？
+特定の SQL が何度も実行されている？
+遅い SQL と、遅い Web リクエストに関連はある？
+
+---
+
+<br/>
+
+# Part 3: 改善 ① - アプリケーション (N+1 問題)(25 分)
+
+---
+
+## N+1 問題とは？
+
+1 件の親レコードを取得するクエリ (1) を発行した後、その親レコードに紐づく子レコードを取得するために、N 件のクエリ (N) が発行されてしまう問題。
+
+**例：投稿(Post)一覧と、各投稿のコメント(Comment)を取得する場合**
+
+1 回の SQL でまとめて取得できるものを、ループの中で 1 件ずつ SQL を発行している状態。
+**DB との通信コストが非常に高く、致命的なパフォーマンス劣化**を引き起こします。
+
+---
+
+## N+1 問題の発見と解決
+
+- **発見方法:**
+
+  - `pt-query-digest` の結果で、似たような `SELECT` クエリが大量に発行されているのを発見する。
+    - `SELECT * FROM comments WHERE post_id = ?` が数千回実行されている、など。
+  - コード上で、ループの中で DB アクセスをしていないか確認する。
+
+- **解決アプローチ: Eager Loading (事前読み込み)**
+  - 予め必要な関連データをまとめて取得しておく手法。
+  - `posts` を取得する際に、`IN`句を使って関連する `comments` も一括で取得する。
+  - `SELECT * FROM comments WHERE post_id IN (1, 2, 3, ..., 100);`
+
+---
+
+## [グループ] `private-isu`の N+1 を探せ！ (5 分)
+
+`alp` の結果で遅かった `/` (トップページ) の処理を見てみましょう。
+ソースコードは `/home/ec2-user/private_isu/webapp/ruby/app.rb` にあります。
+
+```ruby
+# /home/ec2-user/private_isu/webapp/ruby/app.rb
+
+# トップページ
+get '/' do
+  posts = db.xquery('SELECT * FROM posts ORDER BY created_at DESC LIMIT ?', POSTS_PER_PAGE)
+
+  posts.each do |p|
+    # この中で何をしている？
+    p['user'] = user_for_post(p)
+    p['comment_count'] = comment_count_for_post(p['id'])
+    p['comments'] = comments_for_post(p['id'])
+    p['comments'].each do |c|
+      c['user'] = user_for_comment(c)
+    end
+  end
+
+  # ...
+end
+```
+
+---
+
+## [ハンズオン] N+1 問題を修正しよう
+
+トップページの get '/' の処理を改善します。
+コメントやユーザー情報をまとめて取得し、ループ内での SQL 発行をなくしましょう。
+
+修正方針:
+
+取得した posts の id と user_id を集める。
+IN 句を使って、comments と users を一括で取得する。
+Ruby 側で、Post に Comment や User を紐付ける。
+&lt;details>
+&lt;summary>解答例 (app.rb)&lt;/summary>
+
+```ruby
+get '/' do
+posts = db.xquery('SELECT id, user_id, content, created_at FROM posts ORDER BY created_at DESC LIMIT ?', POSTS_PER_PAGE)
+
+if posts.length > 0
+post_ids = posts.map{|p| p['id']}
+user_ids = posts.map{|p| p['user_id']}
+
+    # コメントをまとめて取得
+    comments_by_post_id = db.xquery('SELECT * FROM comments WHERE post_id IN (?) ORDER BY created_at DESC', post_ids).group_by{|c| c['post_id']}
+    # ユーザー情報をまとめて取得
+    comment_user_ids = (comments_by_post_id.values.flatten.map{|c| c['user_id']} rescue [])
+    all_user_ids = (user_ids + comment_user_ids).uniq
+
+    users_by_id = {}
+    if all_user_ids.length > 0
+        users_by_id = db.xquery('SELECT * FROM users WHERE id IN (?)', all_user_ids).group_by{|u| u['id']}
+    end
+
+    posts.each do |p|
+      p['user'] = users_by_id[p['user_id']][0]
+      comments = comments_by_post_id[p['id']] || []
+
+      comments.each do |c|
+        c['user'] = users_by_id[c['user_id']][0]
+      end
+
+      p['comments'] = comments
+      p['comment_count'] = comments.length
+    end
+
+end
+
+# ... 以降は同じ
+
+end
+&lt;/details>
+```
+
+---
+
+## [ハンズオン] デプロイと再計測
+
+### アプリケーションを再起動
+
+```bash
+# Ruby アプリケーションを再起動
+
+sudo systemctl restart isisu-ruby
+```
+
+### ベンチマークを再実行
+
+ブラウザでベンチマークを実行し、スコアの変化を確認します。
+ログを再度 alp や pt-query-digest で見てみましょう。
+SELECT \* FROM comments WHERE post_id = ? のようなクエリが減っているはずです。
+スコアは上がりましたか？ 🎉
+
+---
+
+## Part 4: 改善 ② - データベース (インデックス)
+
+(20 分)
+
+---
+
+## インデックス (Index) とは？
+
+**データベースの検索を高速にするための「索引」** です。
+
+- **例：分厚い技術書**
+  - **インデックスなし:** "N+1 問題" のページを探すのに、最初から全ページをめくる必要がある ( **= フルテーブルスキャン** )
+  - **インデックスあり:** 巻末の索引で "N+1 問題" を引き、該当ページ番号をすぐに見つけられる ( **= インデックススキャン** )
+
+`WHERE`句や`ORDER BY`句で頻繁に使われるカラムにインデックスを貼ると効果的です。
+
+---
+
+## `EXPLAIN` で実行計画を見る
+
+SQL がどのように実行されるか（インデックスを使うかなど）を DB に問い合わせるコマンドです。
+
+```sql
+EXPLAIN SELECT * FROM comments WHERE post_id = 12345;
+```
+
+出力例のチェックポイント:
+
+- type:
+  - ALL: ヤバい！ フルテーブルスキャン。インデックスが効いていない。
+  - ref, range, index: インデックスが使われている。良い。
+- rows:スキャンすると予測される行数。この数が少ないほど良い。
+- Extra:
+  - Using filesort: 注意！ ディスク上でソートが発生している。ORDER BY 句で指定したカラムにインデックスがない場合に発生しやすい。
+
+---
+
+## [グループ] どこにインデックスを貼る？ (5 分)
+
+再度 pt-query-digest の結果を見てみましょう。
+N+1 を解消しても、まだ遅いクエリが残っているはずです。
+
+### 議論のポイント:
+
+Exec time が長いクエリはどれか？
+そのクエリの WHERE 句や ORDER BY 句で使われているカラムは？
+EXPLAIN を実行してみて、type: ALL や Extra: Using filesort になっていないか？
+
+---
+
+```sql
+-- 例: このクエリが遅い場合
+SELECT \* FROM posts ORDER BY created_at DESC;
+-- created_at にインデックスは必要？
+
+SELECT \* FROM comments WHERE post_id = ?;
+-- post_id にインデックスは必要？
+```
+
+---
+
+## [ハンズオン] インデックスを追加しよう
+
+議論で特定したカラムにインデックスを追加します。
+private-isu では、posts テーブルの created_at と、comments テーブルの post_id が効果的です。
+
+- MySQL にログイン
+
+```bash
+mysql -u isudb -p isudb
+# パスワードは isudb
+```
+
+- インデックスを追加する SQL を実行
+
+```sql
+-- posts テーブルの created_at カラムにインデックスを追加
+CREATE INDEX idx_posts_created_at ON posts (created_at);
+
+-- comments テーブルの post_id カラムにインデックスを追加
+CREATE INDEX idx_comments_post_id ON comments (post_id); 3. 再計測
+```
+
+ベンチマークを再度実行し、スコアの変化を確認しましょう！
+EXPLAIN の結果も変わっているはずです。
+
+---
+
+## Part 5: 改善 ③ - Web サーバー (静的ファイル)
+
+(15 分)
+
+---
+
+## 静的ファイル vs 動的ファイル
+
+- **静的ファイル (Static Files)**
+  - 誰がいつアクセスしても **内容が変わらない** ファイル。
+  - 例: CSS, JavaScript, 画像ファイル (JPG, PNG)
+- **動的ファイル (Dynamic Content)**
+  - アクセスごとにプログラムが実行され、**内容が変わる** ファイル。
+  - 例: ユーザーの投稿一覧、ログイン後のマイページ
+
+---
+
+## **現状の`private-isu`**
+
+全てのアクセスを一度 Ruby アプリケーションが受け取ってから処理している。
+静的ファイルまでアプリケーションが処理するのは **非効率**！
+
+---
+
+## Nginx による静的ファイル配信
+
+Web サーバー (Nginx) が、静的ファイルへのリクエストを直接処理し、アプリケーション(Ruby)に渡さないようにする。
+
+**メリット**
+
+- アプリケーションの負荷が減り、動的コンテンツの処理に専念できる。
+- Web サーバーはファイル配信が得意なので、高速に応答できる。
+
+---
+
+## [グループ] どこを修正する？ (3 分)
+
+Nginx の設定ファイルを変更して、`/css`, `/js`, `/images` へのアクセスを直接配信するようにします。
+
+- 設定ファイル: `/etc/nginx/nginx.conf`
+- どの部分に、どのような設定を追加すれば良いでしょうか？
+
+ヒント: `location` ディレクティブを使って、特定のパスへのリクエストを処理します。
+
+```nginx
+# /etc/nginx/nginx.conf の http.server ブロック内
+
+server {
+    listen 80;
+    server_name localhost;
+
+    # ... このあたりに追記 ...
+
+    location / {
+        proxy_pass [http://127.0.0.1:8080](http://127.0.0.1:8080); # アプリケーションに渡す
+    }
+}
+```
+
+---
+
+## [ハンズオン] Nginx の設定を変更しよう
+
+設定ファイルを開いて編集
+
+```
+
+sudo vim /etc/nginx/nginx.conf
+location ブロックを追加
+location / { ... } の 上 に、以下のブロックを追加します。
+
+```
+
+---
+
+## 静的ファイルは Nginx が直接配信する
+
+```
+location ~ ^/(css|js|images)/ {
+root /home/ec2-user/private_isu/webapp/public;
+expires 1d; # キャッシュを 1 日間有効にする
+}
+```
+
+設定をテストして再起動
+
+```bash
+# 設定ファイルの文法チェック
+sudo nginx -t
+# OK なら再起動
+sudo systemctl restart nginx
+```
+
+再計測
+
+最後のベンチマークです！スコアの変化を確認しましょう！
+
+---
+
+## まとめと Q&A
+
+(10 分)
+
+---
+
+## 📈 スコアの Before / After
+
+| 改善内容               | スコア（目安） | 備考                                 |
+| :--------------------- | :------------- | :----------------------------------- |
+| **初期状態**           | ~ 3,000        |                                      |
+| **N+1 問題修正後**     | ~ 20,000       | アプリケーションの改善が大きく効く！ |
+| **インデックス追加後** | ~ 50,000       | DB のボトルネックも解消              |
+| **静的ファイル配信後** | **~ 60,000+**  | アプリの負荷を下げて安定化           |
+
+※スコアは環境やタイミングで変動します。
+
+**重要なのは、計測 → 特定 → 改善のサイクルを回すことです！**
+
+---
+
+## 本日の振り返り
+
+- **計測**
+  - `alp` でアクセスログを見て、遅いエンドポイントを特定した。
+  - `pt-query-digest` でスロークエリログを見て、遅い SQL を特定した。
+- **特定と改善**
+  - **N+1 問題:** ループ内の SQL 発行をやめ、Eager Loading で改善した。
+  - **インデックス:** `EXPLAIN`で実行計画を確認し、`CREATE INDEX`で改善した。
+  - **静的ファイル:** Nginx から直接配信するように設定し、アプリの負荷を軽減した。
+
+このサイクルを、素早く正確に回すことが ISUCON 攻略の鍵です！
+
+---
+
+## 🚀 ネクストステップ
+
+- **他の改善手法を試してみる**
+  - アプリケーションのプロファイリング
+  - DB のコネクション数調整
+  - Nginx, MySQL のパラメータチューニング
+  - 複数台構成 (DB サーバーを分けるなど)
+- **ISUCON の過去問に挑戦する**
+  - [isucon.net](https://isucon.net/) に過去のすべての問題と解説ブログへのリンクがあります。
+- **コミュニティに参加する**
+  - 勉強会や Discord などで情報交換するのもおすすめです。
+
+---
+
+## ご清聴ありがとうございました！
+
+Q&A
+
+---
