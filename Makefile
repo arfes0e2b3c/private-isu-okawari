@@ -12,3 +12,68 @@ benchmarker/userdata/img.zip:
 benchmarker/userdata/img: benchmarker/userdata/img.zip
 	cd benchmarker/userdata && \
 	unzip -qq -o img.zip
+
+# Makefile for ISUCON lecture command shortcuts
+
+# 基本ベンチマーク
+benchmark:
+	/home/isucon/private_isu/benchmarker/bin/benchmarker \
+		-u /home/isucon/private_isu/benchmarker/userdata \
+		-t http://localhost
+
+# MySQL slow log のローテートと再起動
+rotate-slowlog:
+	sudo mv /var/log/mysql/mysql-slow.log /var/log/mysql/mysql-slow-$(shell date +%Y%m%d%H%M).log
+	sudo systemctl restart mysql
+
+# MySQL クエリ集計
+analyze-query:
+	sudo pt-query-digest --limit 5 --explain \
+		h=localhost,u=isuconp,p=isuconp,D=isuconp \
+		/var/log/mysql/mysql-slow.log
+
+# アプリビルド＋再起動
+build-app:
+	cd private_isu/webapp/golang && go build -o app
+	sudo systemctl restart isu-go
+
+# アクセスログローテートとリロード
+rotate-nginx-log:
+	sudo mv /var/log/nginx/access.log /var/log/nginx/access.log.old
+	sudo systemctl reload nginx
+
+# alp でログ集計
+analyze-nginx:
+	sudo cat /var/log/nginx/access.log | alp ltsv \
+		-m '/image/[0-9]+,posts/[0-9]+,/@\w+' \
+		-o method,uri,avg,count,sum --sort sum
+
+# 初期設定セット（MySQLログ、nginxログなど一括）
+prepare:
+	make rotate-slowlog
+	make rotate-nginx-log
+
+# ベンチ → クエリ集計 まで一括
+bench-analyze:
+	make benchmark
+	make analyze-query
+
+# コード変更時のルーチン（app.go → build → 再起動）
+deploy-app:
+	make build-app
+
+# 静的ファイル設定変更後のNginx再起動
+reload-nginx:
+	sudo systemctl reload nginx
+
+# ベンチマーク + ALP ログ集計
+bench-alp:
+	make benchmark
+	make analyze-nginx
+
+# N+1 改善後の確認ルーチン
+check-n1:
+	make rotate-nginx-log
+	make reload-nginx
+	make benchmark
+	make analyze-nginx

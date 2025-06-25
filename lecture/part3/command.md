@@ -1,40 +1,48 @@
-# アプリケーションのパフォーマンスをチューニングしよう
+以下は、Makefile に準拠した形式に置き換えた **Markdown ファイル**です。ファイル名例：`02_application_tuning.md` にするとよいでしょう。
+
+---
+
+````md
+# アプリケーションのパフォーマンスをチューニングしよう（Makefile 対応版）
 
 ## 準備
 
+アクセスログをローテートして、nginx をリロードします：
+
 ```bash
 # 今までのアクセスログを移動
-sudo mv /var/log/nginx/access.log /var/log/nginx/access.log.old
-# nginxのreload
-sudo systemctl reload nginx
+make rotate-nginx-log
 ```
 
 ## アプリケーションのログを集計してみる
 
+まずベンチマーカーを実行：
+
 ```bash
-# ベンチマーカーを走らせるための、スコア計測用コマンド
-/home/isucon/private_isu/benchmarker/bin/benchmarker -u /home/isucon/private_isu/benchmarker/userdata -t http://localhost
+make benchmark
 ```
 
 ```bash
-# 集計用のコマンド
-sudo cat /var/log/nginx/access.log | alp ltsv -m '/image/[0-9]+,posts/[0-9]+,/@\w+' -o method,uri,avg,count,sum --sort sum
+#次に、nginx アクセスログを alp で集計
+make analyze-nginx
 ```
 
 ## 静的ファイルを nginx 経由で返却する
 
+まず設定ファイルを開きます：
+
 ```bash
-# nginxの設定ファイルを開く
 sudo vi /etc/nginx/sites-available/isucon.conf
 ```
 
-:%d と入力して enter を押し、現在の内容を全部削除する
+- `:%d` と入力して enter を押し、現在の内容をすべて削除
+- [isucon.conf の設定ファイル](/lecture/part3/static_file.conf) を貼り付け
+- `:wq` で保存して閉じる
 
-[isucon.conf の設定ファイル](/lecture/part3/static_file.conf)をコピペして貼り付ける
+その後、nginx をリロードします：
 
 ```bash
-# nginxのreload
-sudo systemctl reload nginx
+make reload-nginx
 ```
 
 # 結果の確認
@@ -43,17 +51,14 @@ sudo systemctl reload nginx
 
 ```bash
 # 今までのアクセスログを移動
-sudo mv /var/log/nginx/access.log /var/log/nginx/access.log.old
+make rotate-nginx-log
 # nginxのreload
-sudo systemctl reload nginx
+make reload-nginx
+# ベンチマーカーの実行
+make benchmark
+# nginx アクセスログを alp で集計
+make analyze-nginx
 ```
 
-```bash
-# ベンチマーカーを走らせるための、スコア計測用コマンド
-/home/isucon/private_isu/benchmarker/bin/benchmarker -u /home/isucon/private_isu/benchmarker/userdata -t http://localhost
-```
-
-```bash
-# 集計用のコマンド
-sudo cat /var/log/nginx/access.log | alp ltsv -m '/image/[0-9]+,posts/[0-9]+,/@\w+' -o method,uri,avg,count,sum --sort sum
-```
+> `css` や `js` の返却時間が `0` に近くなっていれば成功です。
+````
