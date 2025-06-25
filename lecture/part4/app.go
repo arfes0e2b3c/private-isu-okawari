@@ -2,6 +2,9 @@ package main
 
 import (
 	crand "crypto/rand"
+	"crypto/sha512"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -9,13 +12,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	_ "net/http/pprof"
 
 	"github.com/bradfitz/gomemcache/memcache"
 	gsm "github.com/bradleypeabody/gorilla-sessions-memcache"
@@ -28,6 +32,7 @@ import (
 var (
 	db    *sqlx.DB
 	store *gsm.MemcacheStore
+	memcacheClient *memcache.Client
 )
 
 const (
@@ -67,12 +72,16 @@ type Comment struct {
 	User      User
 }
 
+var fmap template.FuncMap = template.FuncMap{
+	"imageURL": imageURL,
+}
+
 func init() {
 	memdAddr := os.Getenv("ISUCONP_MEMCACHED_ADDRESS")
 	if memdAddr == "" {
 		memdAddr = "localhost:11211"
 	}
-	memcacheClient := memcache.New(memdAddr)
+	memcacheClient = memcache.New(memdAddr)
 	store = gsm.NewMemcacheStore(memcacheClient, "iscogram_", []byte("sendagaya"))
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 }
@@ -119,13 +128,10 @@ func escapeshellarg(arg string) string {
 
 func digest(src string) string {
 	// opensslのバージョンによっては (stdin)= というのがつくので取る
-	out, err := exec.Command("/bin/bash", "-c", `printf "%s" `+escapeshellarg(src)+` | openssl dgst -sha512 | sed 's/^.*= //'`).Output()
-	if err != nil {
-		log.Print(err)
-		return ""
-	}
 
-	return strings.TrimSuffix(string(out), "\n")
+	s := sha512.New()
+	s.Write([]byte(src))
+	return hex.EncodeToString(s.Sum(nil))
 }
 
 func calculateSalt(accountName string) string {
@@ -175,41 +181,118 @@ func getFlash(w http.ResponseWriter, r *http.Request, key string) string {
 func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, error) {
 	var posts []Post
 
-	for _, p := range results {
-		err := db.Get(&p.CommentCount, "SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?", p.ID)
+	type CommentCount struct {
+		PostID int `db:"post_id"`
+		Count  int `db:"count"`
+	}
+	var counts []CommentCount
+	var comments []Comment
+	if len(results) > 0 {
+		postIds := make([]interface{}, len(results))
+		placeholders := make([]string, len(results))
+		for i, p := range results {
+			postIds[i] = p.ID
+			placeholders[i] = "?"
+		}
+		err := db.Select(&counts, "SELECT post_id, COUNT(*) AS count FROM comments WHERE post_id IN ("+strings.Join(placeholders, ", ")+") GROUP BY post_id", postIds...)
 		if err != nil {
 			return nil, err
 		}
-
-		query := "SELECT * FROM `comments` WHERE `post_id` = ? ORDER BY `created_at` DESC"
-		if !allComments {
+		query := "SELECT * FROM `comments` WHERE `post_id` IN ("+strings.Join(placeholders, ", ")+") ORDER BY `created_at` ASC"
+		if !allComments {	
 			query += " LIMIT 3"
 		}
-		var comments []Comment
-		err = db.Select(&comments, query, p.ID)
+		err = db.Select(&comments, query, postIds...)
 		if err != nil {
 			return nil, err
 		}
+	}
+	commentCountMap := make(map[int]int)
+	for i, p := range counts {
+		commentCountMap[p.PostID] = counts[i].Count
+	}
 
-		for i := range comments {
-			err := db.Get(&comments[i].User, "SELECT * FROM `users` WHERE `id` = ?", comments[i].UserID)
+	commentMap := make(map[int][]Comment)
+	for _, c := range comments {
+		commentMap[c.PostID] = append(commentMap[c.PostID], c)
+	}
+
+	commentCacheKeys := make([]string, len(results))
+	for i, p := range results {
+		commentCacheKeys[i] = fmt.Sprintf("comments:%d:all:%t", p.ID, allComments)
+	}
+
+	commentCache, err := memcacheClient.GetMulti(commentCacheKeys)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, p := range results {
+		p.CommentCount = commentCountMap[p.ID]
+		// p.User = userMap[p.UserID]
+		p.User = User{
+			AccountName: p.User.AccountName,
+		}
+
+
+		// キャッシュキー作成
+
+		var comments []Comment
+		// キャッシュを取得
+		if err == nil && commentCache[fmt.Sprintf("comments:%d:all:%t", p.ID, allComments)] != nil {
+			// JSONデコード
+			err = json.Unmarshal(commentCache[fmt.Sprintf("comments:%d:all:%t", p.ID, allComments)].Value, &comments)
+			if err != nil {
+				log.Printf("memcache unmarshal error: %v", err)
+				comments = nil // エラーの場合はキャッシュ破棄して再取得
+			}
+		}
+
+		// キャッシュがなければDBから取得
+		if comments == nil || len(comments) == 0 {
+			comments = commentMap[p.ID]
+			if err != nil {
+				return nil, err
+			}
+
+			// 取得結果をキャッシュに保存（有効期限10秒）
+			data, err := json.Marshal(comments)
+			if err == nil {
+				memcacheClient.Set(&memcache.Item{
+					Key:        fmt.Sprintf("comments:%d:all:%t", p.ID, allComments),
+					Value:      data,
+					Expiration: 10,
+				})
+			}
+		}
+
+		// コメント投稿者の情報をまとめて取得
+		commentUserIDs := []interface{}{}
+		commentPlaceholders := []string{}
+		for _, c := range comments {
+			commentUserIDs = append(commentUserIDs, c.UserID)
+			commentPlaceholders = append(commentPlaceholders, "?")
+		}
+
+		var commentUsers []User
+		if len(commentUserIDs) > 0 {
+			err = db.Select(&commentUsers, "SELECT * FROM `users` WHERE `id` IN ("+strings.Join(commentPlaceholders, ", ")+")", commentUserIDs...)
 			if err != nil {
 				return nil, err
 			}
 		}
 
-		// reverse
-		for i, j := 0, len(comments)-1; i < j; i, j = i+1, j-1 {
-			comments[i], comments[j] = comments[j], comments[i]
+		commentUserMap := make(map[int]User)
+		for _, u := range commentUsers {
+			commentUserMap[u.ID] = u
+		}
+
+		// コメントにユーザ情報を付与
+		for i, c := range comments {
+			comments[i].User = commentUserMap[c.UserID]
 		}
 
 		p.Comments = comments
-
-		err = db.Get(&p.User, "SELECT * FROM `users` WHERE `id` = ?", p.UserID)
-		if err != nil {
-			return nil, err
-		}
-
 		p.CSRFToken = csrfToken
 
 		if p.User.DelFlg == 0 {
@@ -266,6 +349,12 @@ func getInitialize(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+
+var loginTemplate *template.Template = template.Must(template.ParseFiles(
+	getTemplPath("layout.html"),
+	getTemplPath("login.html")),
+)
+
 func getLogin(w http.ResponseWriter, r *http.Request) {
 	me := getSessionUser(r)
 
@@ -274,10 +363,7 @@ func getLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	template.Must(template.ParseFiles(
-		getTemplPath("layout.html"),
-		getTemplPath("login.html")),
-	).Execute(w, struct {
+	loginTemplate.Execute(w, struct {
 		Me    User
 		Flash string
 	}{me, getFlash(w, r, "notice")})
@@ -307,16 +393,18 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+var registerTemplate *template.Template = template.Must(template.ParseFiles(
+	getTemplPath("layout.html"),
+	getTemplPath("register.html")),
+)
+
 func getRegister(w http.ResponseWriter, r *http.Request) {
 	if isLogin(getSessionUser(r)) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
 
-	template.Must(template.ParseFiles(
-		getTemplPath("layout.html"),
-		getTemplPath("register.html")),
-	).Execute(w, struct {
+	registerTemplate.Execute(w, struct {
 		Me    User
 		Flash string
 	}{User{}, getFlash(w, r, "notice")})
@@ -382,12 +470,19 @@ func getLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
+var indexTemplate *template.Template = template.Must(template.New("layout.html").Funcs(fmap).ParseFiles(
+	getTemplPath("layout.html"),
+	getTemplPath("index.html"),
+	getTemplPath("posts.html"),
+	getTemplPath("post.html"),
+))
+
 func getIndex(w http.ResponseWriter, r *http.Request) {
 	me := getSessionUser(r)
 
 	results := []Post{}
 
-	err := db.Select(&results, "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` ORDER BY `created_at` DESC LIMIT ?", postsPerPage * 2)
+	err := db.Select(&results, "SELECT `p`.`id`,`p`.`user_id`,`p`.`body`,`p`.`mime`,`p`.`created_at` FROM `posts` AS `p` JOIN `users` AS `u` ON (`p`.`user_id` = `u`.`id`) WHERE `u`.`del_flg` = 0 ORDER BY `p`.`created_at` DESC LIMIT ?", postsPerPage)
 	if err != nil {
 		log.Print(err)
 		return
@@ -399,22 +494,20 @@ func getIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmap := template.FuncMap{
-		"imageURL": imageURL,
-	}
-
-	template.Must(template.New("layout.html").Funcs(fmap).ParseFiles(
-		getTemplPath("layout.html"),
-		getTemplPath("index.html"),
-		getTemplPath("posts.html"),
-		getTemplPath("post.html"),
-	)).Execute(w, struct {
+	indexTemplate.Execute(w, struct {
 		Posts     []Post
 		Me        User
 		CSRFToken string
 		Flash     string
 	}{posts, me, getCSRFToken(r), getFlash(w, r, "notice")})
 }
+
+var accountTemplate *template.Template = template.Must(template.New("layout.html").Funcs(fmap).ParseFiles(
+	getTemplPath("layout.html"),
+	getTemplPath("user.html"),
+	getTemplPath("posts.html"),
+	getTemplPath("post.html"),
+))
 
 func getAccountName(w http.ResponseWriter, r *http.Request) {
 	accountName := r.PathValue("accountName")
@@ -433,7 +526,7 @@ func getAccountName(w http.ResponseWriter, r *http.Request) {
 
 	results := []Post{}
 
-	err = db.Select(&results, "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `user_id` = ? ORDER BY `created_at` DESC LIMIT ?", user.ID, postsPerPage * 2)
+	err = db.Select(&results, "SELECT `p`.`id`,`p`.`user_id`,`p`.`body`,`p`.`mime`,`p`.`created_at` FROM `posts` AS `p` JOIN `users` AS `u` ON (`p`.`user_id` = `u`.`id`) WHERE `p`.`user_id` = ? ORDER BY `p`.`created_at` DESC LIMIT ?", user.ID, postsPerPage)
 	if err != nil {
 		log.Print(err)
 		return
@@ -483,16 +576,7 @@ func getAccountName(w http.ResponseWriter, r *http.Request) {
 
 	me := getSessionUser(r)
 
-	fmap := template.FuncMap{
-		"imageURL": imageURL,
-	}
-
-	template.Must(template.New("layout.html").Funcs(fmap).ParseFiles(
-		getTemplPath("layout.html"),
-		getTemplPath("user.html"),
-		getTemplPath("posts.html"),
-		getTemplPath("post.html"),
-	)).Execute(w, struct {
+	accountTemplate.Execute(w, struct {
 		Posts          []Post
 		User           User
 		PostCount      int
@@ -501,6 +585,11 @@ func getAccountName(w http.ResponseWriter, r *http.Request) {
 		Me             User
 	}{posts, user, postCount, commentCount, commentedCount, me})
 }
+
+var postsTemplate *template.Template = template.Must(template.New("posts.html").Funcs(fmap).ParseFiles(
+	getTemplPath("posts.html"),
+	getTemplPath("post.html"),
+))
 
 func getPosts(w http.ResponseWriter, r *http.Request) {
 	m, err := url.ParseQuery(r.URL.RawQuery)
@@ -521,7 +610,7 @@ func getPosts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results := []Post{}
-	err = db.Select(&results, "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `created_at` <= ? ORDER BY `created_at` DESC LIMIT ?", t.Format(ISO8601Format), postsPerPage * 2)
+	err = db.Select(&results, "SELECT `p`.`id`,`p`.`user_id`,`p`.`body`,`p`.`mime`,`p`.`created_at` FROM `posts` AS `p` JOIN `users` AS `u` ON (`p`.`user_id` = `u`.`id`) WHERE `p`.`created_at` <= ? AND `u`.`del_flg` = 0 ORDER BY `p`.`created_at` DESC LIMIT ?", t.Format(ISO8601Format), postsPerPage)
 	if err != nil {
 		log.Print(err)
 		return
@@ -538,15 +627,14 @@ func getPosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmap := template.FuncMap{
-		"imageURL": imageURL,
-	}
-
-	template.Must(template.New("posts.html").Funcs(fmap).ParseFiles(
-		getTemplPath("posts.html"),
-		getTemplPath("post.html"),
-	)).Execute(w, posts)
+	postsTemplate.Execute(w, posts)
 }
+
+var postIDTemplate *template.Template = template.Must(template.New("layout.html").Funcs(fmap).ParseFiles(
+	getTemplPath("layout.html"),
+	getTemplPath("post_id.html"),
+	getTemplPath("post.html"),
+))
 
 func getPostsID(w http.ResponseWriter, r *http.Request) {
 	pidStr := r.PathValue("id")
@@ -557,7 +645,7 @@ func getPostsID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results := []Post{}
-	err = db.Select(&results, "SELECT * FROM `posts` WHERE `id` = ?", pid)
+	err = db.Select(&results, "SELECT `p`.`id`,`p`.`user_id`,`p`.`body`,`p`.`mime`,`p`.`created_at` FROM `posts` AS `p` JOIN `users` AS `u` ON (`p`.`user_id` = `u`.`id`) WHERE `p`.`id` = ? AND `u`.`del_flg` = 0 LIMIT ?", pid, postsPerPage)
 	if err != nil {
 		log.Print(err)
 		return
@@ -578,15 +666,7 @@ func getPostsID(w http.ResponseWriter, r *http.Request) {
 
 	me := getSessionUser(r)
 
-	fmap := template.FuncMap{
-		"imageURL": imageURL,
-	}
-
-	template.Must(template.New("layout.html").Funcs(fmap).ParseFiles(
-		getTemplPath("layout.html"),
-		getTemplPath("post_id.html"),
-		getTemplPath("post.html"),
-	)).Execute(w, struct {
+	postIDTemplate.Execute(w, struct {
 		Post Post
 		Me   User
 	}{p, me})
@@ -670,6 +750,7 @@ func postIndex(w http.ResponseWriter, r *http.Request) {
 
 	http.Redirect(w, r, "/posts/"+strconv.FormatInt(pid, 10), http.StatusFound)
 }
+
 
 func writeImageToFile(post Post) error {
 	// ディレクトリパスを指定
@@ -768,6 +849,11 @@ func postComment(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/posts/%d", postID), http.StatusFound)
 }
 
+var bannedTemplate *template.Template = template.Must(template.ParseFiles(
+	getTemplPath("layout.html"),
+	getTemplPath("banned.html")),
+)
+
 func getAdminBanned(w http.ResponseWriter, r *http.Request) {
 	me := getSessionUser(r)
 	if !isLogin(me) {
@@ -787,10 +873,7 @@ func getAdminBanned(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	template.Must(template.ParseFiles(
-		getTemplPath("layout.html"),
-		getTemplPath("banned.html")),
-	).Execute(w, struct {
+	bannedTemplate.Execute(w, struct {
 		Users     []User
 		Me        User
 		CSRFToken string
@@ -830,6 +913,9 @@ func postAdminBanned(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	go func() { 
+		fmt.Println(http.ListenAndServe("localhost:6060", nil)) 
+	}() 
 	host := os.Getenv("ISUCONP_DB_HOST")
 	if host == "" {
 		host = "localhost"
@@ -866,6 +952,12 @@ func main() {
 		log.Fatalf("Failed to connect to DB: %s.", err.Error())
 	}
 	defer db.Close()
+	maxOpenConns := 25 // TODO: あとで調整する
+
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxOpenConns)
+	db.SetConnMaxLifetime(time.Second * time.Duration(maxOpenConns))
+	db.SetConnMaxIdleTime(time.Second * time.Duration(maxOpenConns))
 
 	root, err := os.OpenRoot("../public")
 	if err != nil {
