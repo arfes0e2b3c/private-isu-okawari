@@ -36,6 +36,7 @@ analyze-query:
 build-app:
 	cd private_isu/webapp/golang && go build -o app
 	sudo systemctl restart isu-go
+	cd
 
 # アクセスログローテートとリロード
 rotate-nginx-log:
