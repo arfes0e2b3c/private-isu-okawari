@@ -2,17 +2,15 @@
 
 ## ベンチマーカー走らせながら top してみる
 
-ターミナル 1 つ目でこれを叩く
+ターミナル 1 つ目でこれを叩く：
 
 ```bash
-# ベンチマーカーを走らせるための、スコア計測用コマンド
-/home/isucon/private_isu/benchmarker/bin/benchmarker -u /home/isucon/private_isu/benchmarker/userdata -t http://localhost
+make benchmark
 ```
 
-↑ が走ってる間にこれを叩く
+↑ が走ってる間にこれを叩く：
 
 ```bash
-# CPUの使用量をリアルタイムで表示するコマンド
 top
 ```
 
@@ -20,34 +18,32 @@ top
 
 ここから何が分かる？
 
-PID USER PR NI VIRT RES SHR S %CPU %MEM TIME+ COMMAND  
- 45978 mysql 20 0 1804188 547692 38144 S **179.1** 14.1 8:43.55 mysqld  
- 44591 isucon 20 0 1967332 80204 10240 S 10.0 2.1 0:17.51 app  
- 56412 isucon 20 0 1602884 13620 7168 S 7.0 0.4 0:00.50 benchmark+
-45961 www-data 20 0 13224 5168 3584 S 1.7 0.1 0:00.69 nginx  
- 45962 www-data 20 0 13208 5428 3712 S 0.3 0.1 0:00.53 nginx
+```
+PID USER PR NI VIRT RES SHR S %CPU %MEM TIME+ COMMAND
+45978 mysql  20 0 1804188 547692 38144 S **179.1** 14.1 8:43.55 mysqld
+44591 isucon 20 0 1967332 80204 10240 S 10.0 2.1 0:17.51 app
+56412 isucon 20 0 1602884 13620 7168 S 7.0 0.4 0:00.50 benchmark+
+45961 www-data 20 0 13224 5168 3584 S 1.7 0.1 0:00.69 nginx
+45962 www-data 20 0 13208 5428 3712 S 0.3 0.1 0:00.53 nginx
+```
 
 ## mysql が重い原因を探る
 
 ```bash
-# 今回のベンチマーカーで叩かれたクエリだけみたいので古いものを別ファイルに移動
-sudo mv /var/log/mysql/mysql-slow.log /var/log/mysql/mysql-slow-$(date +%Y%m%d%H%M).log
-# 変更を反映するためにmysqlを再起動する
-sudo systemctl restart mysql
+# 今回のベンチマーカーで叩かれたクエリだけを見たいので古いものを別ファイルに移動
+make rotate-slowlog
 ```
 
-ベンチマーカーを実行
+その後、ベンチマーカーを再実行：
 
 ```bash
-# ベンチマーカーを走らせるための、スコア計測用コマンド
-/home/isucon/private_isu/benchmarker/bin/benchmarker -u /home/isucon/private_isu/benchmarker/userdata -t http://localhost
+make benchmark
 ```
 
-ベンチマーカーが実行し終わったら
+ベンチマーカーが終わったらクエリ集計：
 
 ```bash
-# 叩かれたクエリのうち、合計時間が長い順に５つを分析して出力するコマンド(ちょっと時間かかるかも)
-sudo pt-query-digest --limit 5 --explain h=localhost,u=isuconp,p=isuconp,D=isuconp /var/log/mysql/mysql-slow.log
+make analyze-query
 ```
 
 ## comments テーブルにインデックスを貼ろう
@@ -84,34 +80,18 @@ exit;
 まずログファイル消す
 
 ```bash
-# 今回のベンチマーカーで叩かれたクエリだけみたいので古いものを別ファイルに移動
-sudo mv /var/log/mysql/mysql-slow.log /var/log/mysql/mysql-slow-$(date +%Y%m%d%H%M).log
-# 変更を反映するためにmysqlを再起動する
-sudo systemctl restart mysql
-```
-
-ベンチマーカーを走らせる
-
-```bash
-# ベンチマーカーを走らせるための、スコア計測用コマンド
-/home/isucon/private_isu/benchmarker/bin/benchmarker -u /home/isucon/private_isu/benchmarker/userdata -t http://localhost
-```
-
-その間に top コマンドで CPU の使用率を確認
-
-```bash
-# CPUの使用量をリアルタイムで表示するコマンド
+# 今回のベンチマーカーで叩かれたクエリだけを見たいので古いものを別ファイルに移動
+make rotate-slowlog
+# ベンチマーカーの実行
+make benchmark
+# CPU使用率のモニタリング
 top
-```
-
-クエリの集計
-
-```bash
 # 叩かれたクエリのうち、合計時間が長い順に５つを分析して出力するコマンド(ちょっと時間かかるかも)
-sudo pt-query-digest --limit 5 --explain h=localhost,u=isuconp,p=isuconp,D=isuconp /var/log/mysql/mysql-slow.log
+
+make analyze-query
 ```
 
-## +α
+## +α: クエリの改善
 
 多分 ↑ で集計した結果でまだインデックスを使って改善できる場所が１箇所あります。
 クエリの集計結果を眺めてみて、どれが改善できそうか話し合って実践してみましょう
@@ -119,18 +99,14 @@ sudo pt-query-digest --limit 5 --explain h=localhost,u=isuconp,p=isuconp,D=isuco
 ## コードベースを編集して遅いクエリをマシにしよう
 
 ```bash
-# goのコードを開く
 vim -n private_isu/webapp/golang/app.go
 ```
 
-:%d で全消しして[part2 の app.go](/lecture/part2/app.go)を貼り付ける
-:wq で保存&閉じる
+全削除 `:%d` → [part2 の app.go](/lecture/part2/app.go) を貼り付け
+保存して閉じる `:wq`
+
+その後、コードのビルドとアプリ再起動：
 
 ```bash
-# goのディレクトリに移動(pythonの人は書き換えてね)
-cd private_isu/webapp/golang
-# ビルド
-go build -o app
-# リスタート
-sudo systemctl restart isu-go
+make deploy-app
 ```

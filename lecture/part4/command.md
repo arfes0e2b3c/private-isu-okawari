@@ -1,10 +1,10 @@
-# 画像を静的ファイルとしてキャッシュしよう
+# 画像を静的ファイルとしてキャッシュしよう（Makefile 対応版）
 
 ## 問題となるエンドポイントの特定
 
 ```bash
 # 集計用のコマンド
-sudo cat /var/log/nginx/access.log | alp ltsv -m '/image/[0-9]+,posts/[0-9]+,/@\w+' -o method,uri,avg,count,sum --sort sum
+make analyze-nginx
 ```
 
 ## 画像を静的ファイルから返す設定
@@ -14,32 +14,31 @@ sudo cat /var/log/nginx/access.log | alp ltsv -m '/image/[0-9]+,posts/[0-9]+,/@\
 sudo vi /etc/nginx/sites-available/isucon.conf
 ```
 
-:%d と入力して enter を押し、現在の内容を全部削除する
+- `:%d` と入力して Enter で内容を全削除
+- [isucon.conf の設定ファイル](/lecture/part4/isucon.conf) を貼り付け
+- `:wq` で保存して終了
 
-[isucon.conf](/lecture/part4/isucon.conf)の内容をコピーをコピペして貼り付ける
+その後、nginx をリロードします：
 
 ```bash
-# nginxのreload
-sudo systemctl reload nginx
+make reload-nginx
 ```
 
 ## 結果の確認
 
 ```bash
 # 今までのアクセスログを移動
-sudo mv /var/log/nginx/access.log /var/log/nginx/access.log.old
+make rotate-nginx-log
 # nginxのreload
-sudo systemctl reload nginx
-```
-
-```bash
+make reload-nginx
 # ベンチマーカーを走らせるための、スコア計測用コマンド
-/home/isucon/private_isu/benchmarker/bin/benchmarker -u /home/isucon/private_isu/benchmarker/userdata -t http://localhost
-```
-
-```bash
+make benchmark
 # 集計用のコマンド
-sudo cat /var/log/nginx/access.log | alp ltsv -m '/image/[0-9]+,posts/[0-9]+,/@\w+' -o method,uri,avg,count,sum --sort sum
+make analyze-nginx
 ```
 
-画像がほぼ 0 秒で返るようになっていれば成功！
+> 画像系のエンドポイント（`/image/...`）のレスポンス時間が **ほぼ 0 秒** になっていれば成功です！
+
+```
+
+```
