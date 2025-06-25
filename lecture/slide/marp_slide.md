@@ -167,19 +167,19 @@ footer: " "
 
     - 過去のログを消して、ベンチマーク実行中のログだけを記録できるようにします。
 
-    ```bash
-    # SSHしているサーバー上で実行
-    sudo truncate -s 0 /var/log/nginx/access.log
-    sudo truncate -s 0 /var/log/mysql/mysql-slow.log
-    ```
+```bash
+# SSHしているサーバー上で実行
+sudo mv /var/log/nginx/access.log /var/log/nginx/access-$(date +%Y%m%d%H%M).log
+sudo mv /var/log/mysql/mysql-slow.log /var/log/mysql/mysql-slow-$(date +%Y%m%d%H%M).log
+```
 
 ---
 
 2.  **ベンチマーカーの実行**
 
-    ```bash
-    /home/isucon/private_isu/benchmarker/bin/benchmarker -u /home/isucon/private_isu/benchmarker/userdata -t http://localhost
-    ```
+```bash
+/home/isucon/private_isu/benchmarker/bin/benchmarker -u /home/isucon/private_isu/benchmarker/userdata -t http://localhost
+```
 
 3.  **初期スコアを確認**
     - おそらく `3,000` 点前後のスコアが出るはずです。この数値を覚えておきましょう。
@@ -221,7 +221,7 @@ SUM (合計時間) や AVG (平均時間) が大きいところが怪しい！
 
 ```bash
 # pt-query-digest コマンドの実行
-sudo pt-query-digest /var/log/mysql/mysql-slow.log
+sudo pt-query-digest --limit 5 --explain h=localhost,u=isuconp,p=isuconp,D=isuconp /var/log/mysql/mysql-slow.log
 ```
 
 ---
@@ -301,8 +301,7 @@ EXPLAIN SELECT * FROM comments WHERE post_id = 12345;
 
 ## [グループ] どこにインデックスを貼る？ (5 分)
 
-再度 pt-query-digest の結果を見てみましょう。
-N+1 を解消しても、まだ遅いクエリが残っているはずです。
+再度 pt-query-digest やtopコマンドを使用して結果を見てみましょう。
 
 ### 議論のポイント:
 
@@ -338,11 +337,7 @@ mysql -u isudb -p isudb
 - インデックスを追加する SQL を実行
 
 ```sql
--- posts テーブルの created_at カラムにインデックスを追加
-CREATE INDEX idx_posts_created_at ON posts (created_at);
-
--- comments テーブルの post_id カラムにインデックスを追加
-CREATE INDEX idx_comments_post_id ON comments (post_id); 3. 再計測
+alter table comments add index post_id_idx(post_id);
 ```
 
 ベンチマークを再度実行し、スコアの変化を確認しましょう！
@@ -374,6 +369,21 @@ EXPLAIN の結果も変わっているはずです。
 
 ---
 
+## リバースプロキシとは？
+
+通常のプロキシはクライアント側に設置されますが、**リバースプロキシ**はその逆で**Webサーバー側**に設置されるため、この名前で呼ばれます。
+
+**役割:**
+- クライアントとサーバーの間に位置し、通信の中継や制御を行う
+- クライアントからのリクエストを受け取り、適切なバックエンドサーバーに転送
+
+**主な機能:**
+- **キャッシュ機能**: 頻繁にアクセスされるコンテンツや静的ファイルをキャッシュ
+- **負荷分散**: 複数のバックエンドサーバーへリクエストを振り分け
+- **セキュリティ**: バックエンドサーバーを直接公開せず保護
+
+---
+
 ## Nginx による静的ファイル配信
 
 Web サーバー (Nginx) が、静的ファイルへのリクエストを直接処理し、アプリケーション(Go)に渡さないようにする。
@@ -387,9 +397,40 @@ Web サーバー (Nginx) が、静的ファイルへのリクエストを直接�
 
 ---
 
-## [グループ] どこを修正する？ (3 分)
+## [ハンズオン]ログを集計してみよう
 
-Nginx の設定ファイルを変更して、`/css`, `/js`, `/img` へのアクセスを直接配信するようにします。
+再度ログを集計してみましょう。
+
+その前に古いアクセスログを移動しておきます。
+
+```bash
+# 今までのアクセスログを移動
+sudo mv /var/log/nginx/access.log /var/log/nginx/access.log.old
+# nginxのreload
+sudo systemctl reload nginx
+```
+
+---
+
+## [ハンズオン]アプリケーションのログを集計してみる
+
+ベンチマーカーを実行して、アクセスログを集計します。
+
+```bash
+# ベンチマーカーを走らせるための、スコア計測用コマンド
+/home/isucon/private_isu/benchmarker/bin/benchmarker -u /home/isucon/private_isu/benchmarker/userdata -t http://localhost
+```
+
+```bash
+# 集計用のコマンド
+sudo cat /var/log/nginx/access.log | alp ltsv -m '/image/[0-9]+,posts/[0-9]+,/@\w+' -o method,uri,avg,count,sum --sort sum
+```
+
+ここからなにがわかるでしょうか？
+
+---
+
+## [グループ] どこを修正する？ (3 分)
 
 - 設定ファイル: `/etc/nginx/nginx.conf`
 - どの部分に、どのような設定を追加すれば良いでしょうか？
@@ -413,55 +454,50 @@ server {
 
 ---
 
-## [ハンズオン] Nginx の設定を変更しよう
+## [ハンズオン] アプリケーションのパフォーマンス改善
 
-設定ファイルを開いて編集
+設定ファイルを開き、[isucon.conf の設定ファイル](/lecture/part3/static_file.conf)を参考にして、
+静的ファイルの配信を設定してみましょう。
 
-```
-
-sudo vim /etc/nginx/nginx.conf
-location ブロックを追加
-location / { ... } の 上 に、以下のブロックを追加します。
-
-```
-
----
-
-## 静的ファイルは Nginx が直接配信する
-
-```nginx
-# 静的ファイルの配信設定
-location ~ .*\.(ico|css|js|img) {
-    expires 1d;
-    add_header Cache-Control public;
-}
-
-# 画像ファイルの配信設定
-location /image/ {
-    expires 1d;
-    add_header Cache-Control public;
-    alias /home/isucon/private_isu/webapp/public/images/;
-    try_files $uri @fallback;  # ファイルが存在しなければアプリケーションへ
-}
-
-location @fallback {
-    proxy_set_header Host $host;
-    proxy_pass http://localhost:8080;
-}
-```
-
-設定をテストして再起動
+完了したら下記のコマンドで設定を反映します。
 
 ```bash
 # 設定ファイルの文法チェック
 sudo nginx -t
-# OK なら再起動
-sudo systemctl restart nginx
+# nginxのreload
+sudo systemctl reload nginx
 ```
 
-再計測
+---
 
-スコアの変化を確認しましょう！
+## リバースプロキシのキャッシュ機能
+
+Nginxをリバースプロキシとして使う場合、**キャッシュ機能**が大きなメリットになります。
+
+**なぜキャッシュが効果的？**
+- 頻繁にアクセスされるコンテンツをNginxが保持
+- バックエンドのアプリケーションサーバーまで行かずに、Nginxから直接レスポンスを返せる
+- 結果: **レスポンス時間の短縮**と**サーバー負荷の軽減**
+
+**private-isuでの例:**
+- 画像ファイル（`/image/`）
+- 静的ファイルをNginxでキャッシュすることで、パフォーマンスが向上！
+
+---
+
+## [ハンズオン] 画像をキャッシュする
+
+設定ファイルを開き、[isucon.conf の設定ファイル](/lecture/part4/static_file.conf)を参考にして、
+静的ファイルの配信を設定してみましょう。
+
+完了したら下記のコマンドで設定を反映します。
+
+```bash
+# 設定ファイルの文法チェック
+sudo nginx -t
+# nginxのreload
+sudo systemctl reload nginx
+```
 
 ---
 
