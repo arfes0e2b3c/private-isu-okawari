@@ -45,11 +45,15 @@ footer: " "
 
 - **講師:** kazu-gor
 
+![bg right w:500 h:500](./images/gorilla_default.jpg)
+
 ---
 
 ## 🧑‍💻 自己紹介
 
 - **講師:** yata
+
+![bg right w:500 h:500](./images/yata.jpg)
 
 ---
 
@@ -163,19 +167,19 @@ footer: " "
 
     - 過去のログを消して、ベンチマーク実行中のログだけを記録できるようにします。
 
-    ```bash
-    # SSHしているサーバー上で実行
-    sudo truncate -s 0 /var/log/nginx/access.log
-    sudo truncate -s 0 /var/log/mysql/mysql-slow.log
-    ```
+```bash
+# SSHしているサーバー上で実行
+sudo mv /var/log/nginx/access.log /var/log/nginx/access-$(date +%Y%m%d%H%M).log
+sudo mv /var/log/mysql/mysql-slow.log /var/log/mysql/mysql-slow-$(date +%Y%m%d%H%M).log
+```
 
 ---
 
 2.  **ベンチマーカーの実行**
 
-    ```bash
-    /home/isucon/private_isu/benchmarker/bin/benchmarker -u /home/isucon/private_isu/benchmarker/userdata -t http://localhost
-    ```
+```bash
+/home/isucon/private_isu/benchmarker/bin/benchmarker -u /home/isucon/private_isu/benchmarker/userdata -t http://localhost
+```
 
 3.  **初期スコアを確認**
     - おそらく `4,000` 点前後のスコアが出るはずです。この数値を覚えておきましょう。
@@ -217,7 +221,7 @@ SUM (合計時間) や AVG (平均時間) が大きいところが怪しい！
 
 ```bash
 # pt-query-digest コマンドの実行
-sudo pt-query-digest /var/log/mysql/mysql-slow.log
+sudo pt-query-digest --limit 5 --explain h=localhost,u=isuconp,p=isuconp,D=isuconp /var/log/mysql/mysql-slow.log
 ```
 
 ---
@@ -297,8 +301,7 @@ EXPLAIN SELECT * FROM comments WHERE post_id = 12345;
 
 ## [グループ] どこにインデックスを貼る？ (5 分)
 
-再度 pt-query-digest の結果を見てみましょう。
-N+1 を解消しても、まだ遅いクエリが残っているはずです。
+再度 pt-query-digest やtopコマンドを使用して結果を見てみましょう。
 
 ### 議論のポイント:
 
@@ -334,11 +337,7 @@ mysql -u isudb -p isudb
 - インデックスを追加する SQL を実行
 
 ```sql
--- posts テーブルの created_at カラムにインデックスを追加
-CREATE INDEX idx_posts_created_at ON posts (created_at);
-
--- comments テーブルの post_id カラムにインデックスを追加
-CREATE INDEX idx_comments_post_id ON comments (post_id); 3. 再計測
+alter table comments add index post_id_idx(post_id);
 ```
 
 ベンチマークを再度実行し、スコアの変化を確認しましょう！
@@ -365,25 +364,73 @@ EXPLAIN の結果も変わっているはずです。
 
 ## **現状の`private-isu`**
 
-全てのアクセスを一度 Ruby アプリケーションが受け取ってから処理している。
+全てのアクセスを一度 Go アプリケーションが受け取ってから処理している。
 静的ファイルまでアプリケーションが処理するのは **非効率**！
+
+---
+
+## リバースプロキシとは？
+
+通常のプロキシはクライアント側に設置されますが、**リバースプロキシ**はその逆で**Webサーバー側**に設置されるため、この名前で呼ばれます。
+
+**役割:**
+- クライアントとサーバーの間に位置し、通信の中継や制御を行う
+- クライアントからのリクエストを受け取り、適切なバックエンドサーバーに転送
+
+**主な機能:**
+- **キャッシュ機能**: 頻繁にアクセスされるコンテンツや静的ファイルをキャッシュ
+- **負荷分散**: 複数のバックエンドサーバーへリクエストを振り分け
+- **セキュリティ**: バックエンドサーバーを直接公開せず保護
 
 ---
 
 ## Nginx による静的ファイル配信
 
-Web サーバー (Nginx) が、静的ファイルへのリクエストを直接処理し、アプリケーション(Ruby)に渡さないようにする。
+Web サーバー (Nginx) が、静的ファイルへのリクエストを直接処理し、アプリケーション(Go)に渡さないようにする。
 
 **メリット**
 
 - アプリケーションの負荷が減り、動的コンテンツの処理に専念できる。
 - Web サーバーはファイル配信が得意なので、高速に応答できる。
 
+![w:900](./images/nginx_req_res.png)
+
+---
+
+## [ハンズオン]ログを集計してみよう
+
+再度ログを集計してみましょう。
+
+その前に古いアクセスログを移動しておきます。
+
+```bash
+# 今までのアクセスログを移動
+sudo mv /var/log/nginx/access.log /var/log/nginx/access.log.old
+# nginxのreload
+sudo systemctl reload nginx
+```
+
+---
+
+## [ハンズオン]アプリケーションのログを集計してみる
+
+ベンチマーカーを実行して、アクセスログを集計します。
+
+```bash
+# ベンチマーカーを走らせるための、スコア計測用コマンド
+/home/isucon/private_isu/benchmarker/bin/benchmarker -u /home/isucon/private_isu/benchmarker/userdata -t http://localhost
+```
+
+```bash
+# 集計用のコマンド
+sudo cat /var/log/nginx/access.log | alp ltsv -m '/image/[0-9]+,posts/[0-9]+,/@\w+' -o method,uri,avg,count,sum --sort sum
+```
+
+ここからなにがわかるでしょうか？
+
 ---
 
 ## [グループ] どこを修正する？ (3 分)
-
-Nginx の設定ファイルを変更して、`/css`, `/js`, `/images` へのアクセスを直接配信するようにします。
 
 - 設定ファイル: `/etc/nginx/nginx.conf`
 - どの部分に、どのような設定を追加すれば良いでしょうか？
@@ -407,41 +454,50 @@ server {
 
 ---
 
-## [ハンズオン] Nginx の設定を変更しよう
+## [ハンズオン] アプリケーションのパフォーマンス改善
 
-設定ファイルを開いて編集
+設定ファイルを開き、[isucon.conf の設定ファイル](/lecture/part3/static_file.conf)を参考にして、
+静的ファイルの配信を設定してみましょう。
 
-```
-
-sudo vim /etc/nginx/nginx.conf
-location ブロックを追加
-location / { ... } の 上 に、以下のブロックを追加します。
-
-```
-
----
-
-## 静的ファイルは Nginx が直接配信する
-
-```
-location ~ ^/(css|js|images)/ {
-root /home/ec2-user/private_isu/webapp/public;
-expires 1d; # キャッシュを 1 日間有効にする
-}
-```
-
-設定をテストして再起動
+完了したら下記のコマンドで設定を反映します。
 
 ```bash
 # 設定ファイルの文法チェック
 sudo nginx -t
-# OK なら再起動
-sudo systemctl restart nginx
+# nginxのreload
+sudo systemctl reload nginx
 ```
 
-再計測
+---
 
-最後のベンチマークです！スコアの変化を確認しましょう！
+## リバースプロキシのキャッシュ機能
+
+Nginxをリバースプロキシとして使う場合、**キャッシュ機能**が大きなメリットになります。
+
+**なぜキャッシュが効果的？**
+- 頻繁にアクセスされるコンテンツをNginxが保持
+- バックエンドのアプリケーションサーバーまで行かずに、Nginxから直接レスポンスを返せる
+- 結果: **レスポンス時間の短縮**と**サーバー負荷の軽減**
+
+**private-isuでの例:**
+- 画像ファイル（`/image/`）
+- 静的ファイルをNginxでキャッシュすることで、パフォーマンスが向上！
+
+---
+
+## [ハンズオン] 画像をキャッシュする
+
+設定ファイルを開き、[isucon.conf の設定ファイル](/lecture/part4/static_file.conf)を参考にして、
+静的ファイルの配信を設定してみましょう。
+
+完了したら下記のコマンドで設定を反映します。
+
+```bash
+# 設定ファイルの文法チェック
+sudo nginx -t
+# nginxのreload
+sudo systemctl reload nginx
+```
 
 ---
 
@@ -545,81 +601,62 @@ sudo pt-query-digest --limit 5 --explain h=localhost,u=isuconp,p=isuconp,D=isuco
 ## [グループ] `private-isu`の N+1 を探せ！ (5 分)
 
 `alp` の結果で遅かった `/` (トップページ) の処理を見てみましょう。
-ソースコードは `/home/ec2-user/private_isu/webapp/ruby/app.rb` にあります。
+ソースコードは `/home/isucon/private_isu/webapp/golang/app.go` にあります。
 
-```ruby
-# /home/ec2-user/private_isu/webapp/ruby/app.rb
+```go
+// /home/isucon/private_isu/webapp/golang/app.go
 
-# トップページ
-get '/' do
-  posts = db.xquery('SELECT * FROM posts ORDER BY created_at DESC LIMIT ?', POSTS_PER_PAGE)
-
-  posts.each do |p|
-    # この中で何をしている？
-    p['user'] = user_for_post(p)
-    p['comment_count'] = comment_count_for_post(p['id'])
-    p['comments'] = comments_for_post(p['id'])
-    p['comments'].each do |c|
-      c['user'] = user_for_comment(c)
-    end
-  end
-
-  # ...
-end
+// トップページのハンドラー
+func getIndex(w http.ResponseWriter, r *http.Request) {
+    // 投稿を取得
+    results := []Post{}
+    err := db.Select(&results, "SELECT * FROM `posts` ORDER BY `created_at` DESC LIMIT ?", postsPerPage)
+    
+    for i := 0; i < len(results); i++ {
+        // この中で何をしている？
+        err := db.Get(&results[i].User, "SELECT * FROM `users` WHERE `id` = ?", results[i].UserID)
+        
+        // コメント数を取得
+        var count int
+        db.Get(&count, "SELECT COUNT(*) FROM `comments` WHERE `post_id` = ?", results[i].ID)
+        results[i].CommentCount = count
+        
+        // コメントを取得
+        comments := []Comment{}
+        db.Select(&comments, "SELECT * FROM `comments` WHERE `post_id` = ? ORDER BY `created_at` DESC LIMIT 3", results[i].ID)
+        for j := 0; j < len(comments); j++ {
+            db.Get(&comments[j].User, "SELECT * FROM `users` WHERE `id` = ?", comments[j].UserID)
+        }
+        results[i].Comments = comments
+    }
+    // ...
+}
 ```
 
 ---
 
 ## [ハンズオン] N+1 問題を修正しよう
 
-トップページの get '/' の処理を改善します。
+トップページの処理を改善します。
 コメントやユーザー情報をまとめて取得し、ループ内での SQL 発行をなくしましょう。
 
 修正方針:
 
-取得した posts の id と user_id を集める。
-IN 句を使って、comments と users を一括で取得する。
-Ruby 側で、Post に Comment や User を紐付ける。
-&lt;details>
-&lt;summary>解答例 (app.rb)&lt;/summary>
+1. 取得した posts の id と user_id を集める。
+2. IN 句を使って、comments と users を一括で取得する。
+3. Map を使って、Post に Comment や User を効率的に紐付ける。
 
-```ruby
-get '/' do
-posts = db.xquery('SELECT id, user_id, content, created_at FROM posts ORDER BY created_at DESC LIMIT ?', POSTS_PER_PAGE)
+```go
+// 例: IN句を使った一括取得
+postIDs := []int{1, 2, 3, 4, 5}
+query := "SELECT * FROM comments WHERE post_id IN (?, ?, ?, ?, ?)"
+db.Select(&comments, query, postIDs...)
 
-if posts.length > 0
-post_ids = posts.map{|p| p['id']}
-user_ids = posts.map{|p| p['user_id']}
-
-    # コメントをまとめて取得
-    comments_by_post_id = db.xquery('SELECT * FROM comments WHERE post_id IN (?) ORDER BY created_at DESC', post_ids).group_by{|c| c['post_id']}
-    # ユーザー情報をまとめて取得
-    comment_user_ids = (comments_by_post_id.values.flatten.map{|c| c['user_id']} rescue [])
-    all_user_ids = (user_ids + comment_user_ids).uniq
-
-    users_by_id = {}
-    if all_user_ids.length > 0
-        users_by_id = db.xquery('SELECT * FROM users WHERE id IN (?)', all_user_ids).group_by{|u| u['id']}
-    end
-
-    posts.each do |p|
-      p['user'] = users_by_id[p['user_id']][0]
-      comments = comments_by_post_id[p['id']] || []
-
-      comments.each do |c|
-        c['user'] = users_by_id[c['user_id']][0]
-      end
-
-      p['comments'] = comments
-      p['comment_count'] = comments.length
-    end
-
-end
-
-# ... 以降は同じ
-
-end
-&lt;/details>
+// MapでO(1)アクセスを実現
+userMap := make(map[int]User)
+for _, u := range users {
+    userMap[u.ID] = u
+}
 ```
 
 ---
@@ -629,9 +666,9 @@ end
 ### アプリケーションを再起動
 
 ```bash
-# Ruby アプリケーションを再起動
+# Go アプリケーションを再起動
 
-sudo systemctl restart isisu-ruby
+sudo systemctl restart isu-go
 ```
 
 ### ベンチマークを再実行
