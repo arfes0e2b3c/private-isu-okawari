@@ -447,7 +447,7 @@ sudo systemctl restart nginx
 
 再計測
 
-最後のベンチマークです！スコアの変化を確認しましょう！
+スコアの変化を確認しましょう！
 
 ---
 
@@ -586,47 +586,6 @@ end
 取得した posts の id と user_id を集める。
 IN 句を使って、comments と users を一括で取得する。
 Ruby 側で、Post に Comment や User を紐付ける。
-&lt;details>
-&lt;summary>解答例 (app.rb)&lt;/summary>
-
-```ruby
-get '/' do
-posts = db.xquery('SELECT id, user_id, content, created_at FROM posts ORDER BY created_at DESC LIMIT ?', POSTS_PER_PAGE)
-
-if posts.length > 0
-post_ids = posts.map{|p| p['id']}
-user_ids = posts.map{|p| p['user_id']}
-
-    # コメントをまとめて取得
-    comments_by_post_id = db.xquery('SELECT * FROM comments WHERE post_id IN (?) ORDER BY created_at DESC', post_ids).group_by{|c| c['post_id']}
-    # ユーザー情報をまとめて取得
-    comment_user_ids = (comments_by_post_id.values.flatten.map{|c| c['user_id']} rescue [])
-    all_user_ids = (user_ids + comment_user_ids).uniq
-
-    users_by_id = {}
-    if all_user_ids.length > 0
-        users_by_id = db.xquery('SELECT * FROM users WHERE id IN (?)', all_user_ids).group_by{|u| u['id']}
-    end
-
-    posts.each do |p|
-      p['user'] = users_by_id[p['user_id']][0]
-      comments = comments_by_post_id[p['id']] || []
-
-      comments.each do |c|
-        c['user'] = users_by_id[c['user_id']][0]
-      end
-
-      p['comments'] = comments
-      p['comment_count'] = comments.length
-    end
-
-end
-
-# ... 以降は同じ
-
-end
-&lt;/details>
-```
 
 ---
 
