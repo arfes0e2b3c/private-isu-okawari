@@ -2,6 +2,7 @@ package main
 
 import (
 	crand "crypto/rand"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -26,8 +27,9 @@ import (
 )
 
 var (
-	db    *sqlx.DB
-	store *gsm.MemcacheStore
+	db             *sqlx.DB
+	store          *gsm.MemcacheStore
+	memcacheClient *memcache.Client
 )
 
 const (
@@ -72,7 +74,7 @@ func init() {
 	if memdAddr == "" {
 		memdAddr = "localhost:11211"
 	}
-	memcacheClient := memcache.New(memdAddr)
+	memcacheClient = memcache.New(memdAddr)
 	store = gsm.NewMemcacheStore(memcacheClient, "iscogram_", []byte("sendagaya"))
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 }
@@ -175,41 +177,117 @@ func getFlash(w http.ResponseWriter, r *http.Request, key string) string {
 func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, error) {
 	var posts []Post
 
-	for _, p := range results {
-		err := db.Get(&p.CommentCount, "SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?", p.ID)
+	type CommentCount struct {
+		PostID int `db:"post_id"`
+		Count  int `db:"count"`
+	}
+	var counts []CommentCount
+	var comments []Comment
+	if len(results) > 0 {
+		postIds := make([]interface{}, len(results))
+		placeholders := make([]string, len(results))
+		for i, p := range results {
+			postIds[i] = p.ID
+			placeholders[i] = "?"
+		}
+		err := db.Select(&counts, "SELECT post_id, COUNT(*) AS count FROM comments WHERE post_id IN ("+strings.Join(placeholders, ", ")+") GROUP BY post_id", postIds...)
 		if err != nil {
 			return nil, err
 		}
-
-		query := "SELECT * FROM `comments` WHERE `post_id` = ? ORDER BY `created_at` DESC"
+		query := "SELECT * FROM `comments` WHERE `post_id` IN (" + strings.Join(placeholders, ", ") + ") ORDER BY `created_at` ASC"
 		if !allComments {
 			query += " LIMIT 3"
 		}
-		var comments []Comment
-		err = db.Select(&comments, query, p.ID)
+		err = db.Select(&comments, query, postIds...)
 		if err != nil {
 			return nil, err
 		}
+	}
+	commentCountMap := make(map[int]int)
+	for i, p := range counts {
+		commentCountMap[p.PostID] = counts[i].Count
+	}
 
-		for i := range comments {
-			err := db.Get(&comments[i].User, "SELECT * FROM `users` WHERE `id` = ?", comments[i].UserID)
+	commentMap := make(map[int][]Comment)
+	for _, c := range comments {
+		commentMap[c.PostID] = append(commentMap[c.PostID], c)
+	}
+
+	commentCacheKeys := make([]string, len(results))
+	for i, p := range results {
+		commentCacheKeys[i] = fmt.Sprintf("comments:%d:all:%t", p.ID, allComments)
+	}
+
+	commentCache, err := memcacheClient.GetMulti(commentCacheKeys)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, p := range results {
+		p.CommentCount = commentCountMap[p.ID]
+		// p.User = userMap[p.UserID]
+		p.User = User{
+			AccountName: p.User.AccountName,
+		}
+
+		// キャッシュキー作成
+
+		var comments []Comment
+		// キャッシュを取得
+		if err == nil && commentCache[fmt.Sprintf("comments:%d:all:%t", p.ID, allComments)] != nil {
+			// JSONデコード
+			err = json.Unmarshal(commentCache[fmt.Sprintf("comments:%d:all:%t", p.ID, allComments)].Value, &comments)
+			if err != nil {
+				log.Printf("memcache unmarshal error: %v", err)
+				comments = nil // エラーの場合はキャッシュ破棄して再取得
+			}
+		}
+
+		// キャッシュがなければDBから取得
+		if comments == nil || len(comments) == 0 {
+			comments = commentMap[p.ID]
+			if err != nil {
+				return nil, err
+			}
+
+			// 取得結果をキャッシュに保存（有効期限10秒）
+			data, err := json.Marshal(comments)
+			if err == nil {
+				memcacheClient.Set(&memcache.Item{
+					Key:        fmt.Sprintf("comments:%d:all:%t", p.ID, allComments),
+					Value:      data,
+					Expiration: 10,
+				})
+			}
+		}
+
+		// コメント投稿者の情報をまとめて取得
+		commentUserIDs := []interface{}{}
+		commentPlaceholders := []string{}
+		for _, c := range comments {
+			commentUserIDs = append(commentUserIDs, c.UserID)
+			commentPlaceholders = append(commentPlaceholders, "?")
+		}
+
+		var commentUsers []User
+		if len(commentUserIDs) > 0 {
+			err = db.Select(&commentUsers, "SELECT * FROM `users` WHERE `id` IN ("+strings.Join(commentPlaceholders, ", ")+")", commentUserIDs...)
 			if err != nil {
 				return nil, err
 			}
 		}
 
-		// reverse
-		for i, j := 0, len(comments)-1; i < j; i, j = i+1, j-1 {
-			comments[i], comments[j] = comments[j], comments[i]
+		commentUserMap := make(map[int]User)
+		for _, u := range commentUsers {
+			commentUserMap[u.ID] = u
+		}
+
+		// コメントにユーザ情報を付与
+		for i, c := range comments {
+			comments[i].User = commentUserMap[c.UserID]
 		}
 
 		p.Comments = comments
-
-		err = db.Get(&p.User, "SELECT * FROM `users` WHERE `id` = ?", p.UserID)
-		if err != nil {
-			return nil, err
-		}
-
 		p.CSRFToken = csrfToken
 
 		if p.User.DelFlg == 0 {
@@ -387,7 +465,7 @@ func getIndex(w http.ResponseWriter, r *http.Request) {
 
 	results := []Post{}
 
-	err := db.Select(&results, "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` ORDER BY `created_at` DESC LIMIT ?", postsPerPage * 2)
+	err := db.Select(&results, "SELECT `p`.`id`,`p`.`user_id`,`p`.`body`,`p`.`mime`,`p`.`created_at` FROM `posts` AS `p` JOIN `users` AS `u` ON (`p`.`user_id` = `u`.`id`) WHERE `u`.`del_flg` = 0 ORDER BY `p`.`created_at` DESC LIMIT ?", postsPerPage)
 	if err != nil {
 		log.Print(err)
 		return
@@ -433,7 +511,7 @@ func getAccountName(w http.ResponseWriter, r *http.Request) {
 
 	results := []Post{}
 
-	err = db.Select(&results, "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `user_id` = ? ORDER BY `created_at` DESC LIMIT ?", user.ID, postsPerPage * 2)
+	err = db.Select(&results, "SELECT `p`.`id`,`p`.`user_id`,`p`.`body`,`p`.`mime`,`p`.`created_at` FROM `posts` AS `p` JOIN `users` AS `u` ON (`p`.`user_id` = `u`.`id`) WHERE `p`.`user_id` = ? ORDER BY `p`.`created_at` DESC LIMIT ?", user.ID, postsPerPage)
 	if err != nil {
 		log.Print(err)
 		return
@@ -521,7 +599,7 @@ func getPosts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results := []Post{}
-	err = db.Select(&results, "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `created_at` <= ? ORDER BY `created_at` DESC LIMIT ?", t.Format(ISO8601Format), postsPerPage * 2)
+	err = db.Select(&results, "SELECT `p`.`id`,`p`.`user_id`,`p`.`body`,`p`.`mime`,`p`.`created_at` FROM `posts` AS `p` JOIN `users` AS `u` ON (`p`.`user_id` = `u`.`id`) WHERE `p`.`created_at` <= ? AND `u`.`del_flg` = 0 ORDER BY `p`.`created_at` DESC LIMIT ?", t.Format(ISO8601Format), postsPerPage)
 	if err != nil {
 		log.Print(err)
 		return
@@ -557,7 +635,7 @@ func getPostsID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results := []Post{}
-	err = db.Select(&results, "SELECT * FROM `posts` WHERE `id` = ?", pid)
+	err = db.Select(&results, "SELECT `p`.`id`,`p`.`user_id`,`p`.`body`,`p`.`mime`,`p`.`created_at` FROM `posts` AS `p` JOIN `users` AS `u` ON (`p`.`user_id` = `u`.`id`) WHERE `p`.`id` = ? AND `u`.`del_flg` = 0 LIMIT ?", pid, postsPerPage)
 	if err != nil {
 		log.Print(err)
 		return
@@ -670,7 +748,6 @@ func postIndex(w http.ResponseWriter, r *http.Request) {
 
 	http.Redirect(w, r, "/posts/"+strconv.FormatInt(pid, 10), http.StatusFound)
 }
-
 
 
 func writeImageToFile(post Post) error {
@@ -855,7 +932,7 @@ func main() {
 	}
 
 	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local&interpolateParams=true",
+		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local",
 		user,
 		password,
 		host,

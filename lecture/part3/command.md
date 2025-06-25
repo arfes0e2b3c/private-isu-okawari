@@ -1,64 +1,29 @@
-以下は、Makefile に準拠した形式に置き換えた **Markdown ファイル**です。ファイル名例：`02_application_tuning.md` にするとよいでしょう。
-
----
-
-````md
-# アプリケーションのパフォーマンスをチューニングしよう（Makefile 対応版）
-
-## 準備
-
-アクセスログをローテートして、nginx をリロードします：
+## N+1 問題を解決しよう
 
 ```bash
-# 今までのアクセスログを移動
-make rotate-nginx-log
+# goのコードを開く
+vim -n private_isu/webapp/golang/app.go
 ```
 
-## アプリケーションのログを集計してみる
+- `:%d` で全て削除
+- [part5 の app.go](/lecture/part5/app.go) を貼り付け
+- `:wq` で保存して終了
 
-まずベンチマーカーを実行：
+その後、アプリケーションをビルドして再起動
 
 ```bash
-make benchmark
+make deploy-app
 ```
 
-```bash
-#次に、nginx アクセスログを alp で集計
-make analyze-nginx
-```
-
-## 静的ファイルを nginx 経由で返却する
-
-まず設定ファイルを開きます：
-
-```bash
-sudo vi /etc/nginx/sites-available/isucon.conf
-```
-
-- `:%d` と入力して enter を押し、現在の内容をすべて削除
-- [isucon.conf の設定ファイル](/lecture/part3/static_file.conf) を貼り付け
-- `:wq` で保存して閉じる
-
-その後、nginx をリロードします：
-
-```bash
-make reload-nginx
-```
-
-# 結果の確認
-
-「準備、アプリケーションのログを集計してみる」でやったことをもう一度行って、スコアが上がっていること、css や js の返却時間が 0 になっていることを確認する
+次に、スコアが変わっているか検証：
 
 ```bash
 # 今までのアクセスログを移動
 make rotate-nginx-log
 # nginxのreload
 make reload-nginx
-# ベンチマーカーの実行
+# ベンチマーカーを走らせるための、スコア計測用コマンド
 make benchmark
-# nginx アクセスログを alp で集計
+# 集計用のコマンド
 make analyze-nginx
 ```
-
-> `css` や `js` の返却時間が `0` に近くなっていれば成功です。
-````
