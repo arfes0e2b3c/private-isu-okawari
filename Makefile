@@ -39,12 +39,12 @@ build-app:
 	cd
 
 # アクセスログローテートとリロード
-rotate-nginx-log:
+rotate-access-log:
 	sudo mv /var/log/nginx/access.log /var/log/nginx/access.log.old
 	sudo systemctl reload nginx
 
 # alp でログ集計
-analyze-nginx:
+analyze-access-log:
 	sudo cat /var/log/nginx/access.log | alp ltsv \
 		-m '/image/[0-9]+,posts/[0-9]+,/@\w+' \
 		-o method,uri,avg,count,sum --sort sum
@@ -52,7 +52,7 @@ analyze-nginx:
 # 初期設定セット（MySQLログ、nginxログなど一括）
 prepare:
 	make rotate-slowlog
-	make rotate-nginx-log
+	make rotate-access-log
 
 # ベンチ → クエリ集計 まで一括
 bench-analyze:
@@ -70,11 +70,11 @@ reload-nginx:
 # ベンチマーク + ALP ログ集計
 bench-alp:
 	make benchmark
-	make analyze-nginx
+	make analyze-access-log
 
 # N+1 改善後の確認ルーチン
 check-n1:
-	make rotate-nginx-log
+	make rotate-access-log
 	make reload-nginx
 	make benchmark
-	make analyze-nginx
+	make analyze-access-log
