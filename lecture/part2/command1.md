@@ -53,7 +53,7 @@ make reload-nginx
 # ベンチマーカーの実行
 make benchmark
 # nginx アクセスログを alp で集計
-make analyze-nginx
+make analyze-access-log
 ```
 
 > `css` や `js` の返却時間が `0` に近くなっていれば成功です！

@@ -275,14 +275,31 @@ make analyze-access-log
 
 ## 出力例
 
-+-------+-----+-----+-----+-----+-----+-------+--------+------------------+
-| COUNT | 1% | 50% | 99% | AVG | MAX | **SUM** | METHOD | URI |
-+-------+-----+-----+-----+-----+-----+-------+--------+------------------+
-| 1800 | ... | ... | ... | 0.82| 1.51| 1476.0| GET | / |
-| 1200 | ... | ... | ... | 0.55| 1.10| 660.0| GET | /posts?offset=10 |
-| 600 | ... | ... | ... | 0.30| 0.80| 180.0| POST | /login |
-| ... | ... | ... | ... | ... | ... | ... | ... | ... |
-+-------+-----+-----+-----+-----+-----+-------+--------+------------------+
+isucon@ip-172-31-19-196:~$ make analyze-access-log
+sudo cat /var/log/nginx/access.log | alp ltsv \
+        -m '/image/[0-9]+,posts/[0-9]+,/@\w+' \
+        -o method,uri,avg,count,sum --sort sum
++--------+--------------------+-------+-------+---------+
+| METHOD |        URI         |  AVG  | COUNT |   SUM   |
++--------+--------------------+-------+-------+---------+
+| GET    | /admin/banned      | 0.008 | 7     | 0.059   |
+| GET    | /logout            | 0.005 | 13    | 0.065   |
+| GET    | /login             | 0.003 | 26    | 0.086   |
+| POST   | /comment           | 0.018 | 9     | 0.158   |
+| GET    | /initialize        | 0.164 | 1     | 0.164   |
+| GET    | /css/style.css     | 0.001 | 282   | 0.400   |
+| GET    | /js/main.js        | 0.002 | 282   | 0.452   |
+| POST   | /                  | 0.035 | 14    | 0.491   |
+| GET    | /js/timeago.min.js | 0.002 | 282   | 0.505   |
+| POST   | /register          | 0.085 | 7     | 0.598   |
+| GET    | /favicon.ico       | 0.003 | 282   | 0.865   |
+| POST   | /login             | 0.048 | 69    | 3.343   |
+| GET    | /image/[0-9]+      | 0.016 | 1892  | 29.922  |
+| GET    | posts/[0-9]+       | 0.268 | 217   | 58.138  |
+| GET    | /posts             | 5.356 | 12    | 64.273  |
+| GET    | /@\w+              | 2.676 | 28    | 74.918  |
+| GET    | /                  | 4.973 | 99    | 492.314 |
++--------+--------------------+-------+-------+---------+
 
 SUM (合計時間) や AVG (平均時間) が大きいところが怪しい！
 
@@ -303,19 +320,20 @@ make analyze-slowquery-log
 ## 出力例 (一部抜粋):
 
 ```
-# Query 1: 0.01 QPS, 0.01x concurrency, ID 0x...
-# This item is included in the report because its total time is ...
+# Query 1: 36.54 QPS, 5.54x concurrency, ID 0x624863D30DAC59FA16849282195BE09F at byte 7080599
 # Scores: V/M = 0.01
-# Time range: ... to ...
-# Attribute    pct   total     min     max     avg     ...
-# ============ === ======= ======= ======= ======= =======
-# Count         50    1800
-# **Exec time**     63   5225s     2s      4s      3s   ...
-# ...
-SELECT `posts`.* FROM `posts` ORDER BY `created_at` DESC LIMIT 10 OFFSET 10;
+# Time range: 2025-06-26T09:26:34 to 2025-06-26T09:27:48
+# Attribute    pct   total     min     max     avg     95%  stddev  median
+# ============ === ======= ======= ======= ======= ======= ======= =======
+# Count          4    2704
+# Exec time     64    410s    30ms   248ms   152ms   189ms    37ms   155ms
+# Lock time     20     4ms       0     2ms     1us     1us    29us     1us
+# Rows sent      0   6.93k       0       3    2.62    2.90    0.96    2.90
+# Rows examine  45 257.89M  97.66k  97.67k  97.66k  97.04k       0  97.04k
+# Query size     3 216.93k      80      83   82.15   80.10    0.10   80.10
 
-# Query 2: ...
-SELECT `comments`.* FROM `comments` WHERE `post_id` = ? ORDER BY `created_at` DESC;
+SELECT * FROM `comments` WHERE `post_id` = 3659 ORDER BY `created_at` DESC LIMIT 3\G
+
 ```
 
 ## Exec time (合計実行時間) が大きいクエリが怪しい！
