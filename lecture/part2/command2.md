@@ -15,7 +15,7 @@ sudo vi /etc/nginx/sites-available/isucon.conf
 ```
 
 - `:%d` と入力して Enter で内容を全削除
-- [isucon.conf の設定ファイル](/lecture/part4/isucon.conf) を貼り付け
+- [isucon.conf の設定ファイル](/lecture/part2/isucon2.conf) を貼り付け
 - `:wq` で保存して終了
 
 その後、nginx をリロードします：
@@ -28,9 +28,7 @@ make reload-nginx
 
 ```bash
 # 今までのアクセスログを移動
-make rotate-nginx-log
-# nginxのreload
-make reload-nginx
+make rotate-access-log
 # ベンチマーカーを走らせるための、スコア計測用コマンド
 make benchmark
 # 集計用のコマンド

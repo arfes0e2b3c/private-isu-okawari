@@ -19,9 +19,7 @@ make deploy-app
 
 ```bash
 # 今までのアクセスログを移動
-make rotate-nginx-log
-# nginxのreload
-make reload-nginx
+make rotate-access-log
 # ベンチマーカーを走らせるための、スコア計測用コマンド
 make benchmark
 # 集計用のコマンド
