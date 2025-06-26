@@ -1,9 +1,4 @@
-以下は、Makefile に準拠した形式に置き換えた **Markdown ファイル**です。ファイル名例：`02_application_tuning.md` にするとよいでしょう。
-
----
-
-````md
-# アプリケーションのパフォーマンスをチューニングしよう（Makefile 対応版）
+# アプリケーションのパフォーマンスをチューニングしよう
 
 ## 準備
 
@@ -11,7 +6,7 @@
 
 ```bash
 # 今までのアクセスログを移動
-make rotate-nginx-log
+make rotate-access-log
 ```
 
 ## アプリケーションのログを集計してみる
@@ -24,7 +19,7 @@ make benchmark
 
 ```bash
 #次に、nginx アクセスログを alp で集計
-make analyze-nginx
+make analyze-access-log
 ```
 
 ## 静的ファイルを nginx 経由で返却する
@@ -42,6 +37,7 @@ sudo vi /etc/nginx/sites-available/isucon.conf
 その後、nginx をリロードします：
 
 ```bash
+sudo nginx -t
 make reload-nginx
 ```
 
@@ -60,5 +56,4 @@ make benchmark
 make analyze-nginx
 ```
 
-> `css` や `js` の返却時間が `0` に近くなっていれば成功です。
-````
+> `css` や `js` の返却時間が `0` に近くなっていれば成功です！

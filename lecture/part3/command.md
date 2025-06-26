@@ -6,7 +6,7 @@ vim -n private_isu/webapp/golang/app.go
 ```
 
 - `:%d` で全て削除
-- [part5 の app.go](/lecture/part5/app.go) を貼り付け
+- [part3 の app.go](/lecture/part5/app.go) を貼り付け
 - `:wq` で保存して終了
 
 その後、アプリケーションをビルドして再起動

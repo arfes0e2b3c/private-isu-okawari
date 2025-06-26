@@ -803,16 +803,17 @@ for _, u := range users {
 ### アプリケーションを再起動
 
 ```bash
-# app.goを開く
+# app.go(python)を開く
 vim -n /private_isu/webapp/golang/app.go
-# Go アプリケーションを再起動
+vim -n /private_isu/webapp/python/app.py
+# Go (Python) アプリケーションを再起動
 make build-app
 ```
 
 ### ベンチマークを再実行
 
 ブラウザでベンチマークを実行し、スコアの変化を確認します。
-ログを再度 alp や pt-query-digest で見てみましょう。
+ログを再度 `make analyze-slowquery-log` や `make analyze-access-log` で見てみましょう。
 SELECT \* FROM comments WHERE post_id = ? のようなクエリが減っているはずです。
 スコアは上がりましたか？ 🎉
 
@@ -826,7 +827,7 @@ SELECT \* FROM comments WHERE post_id = ? のようなクエリが減ってい�
 
 ## 📈 スコアの Before / After
 
-| 改善内容               | スコア（目安） | 備考                                 |
+| 改善内容               | スコア（目安、Go） | 備考                                 |
 | :--------------------- | :------------- | :----------------------------------- |
 | **初期状態**           | ~ 3,000        |                                      |
 | **インデックス追加後** | ~ 25,000       | DB のボトルネックも解消              |
@@ -862,13 +863,14 @@ SELECT \* FROM comments WHERE post_id = ? のようなクエリが減ってい�
   - 複数台構成 (DB サーバーを分けるなど)
 - **ISUCON の過去問に挑戦する**
   - [isucon.net](https://isucon.net/) に過去のすべての問題と解説ブログへのリンクがあります。
-- **コミュニティに参加する**
-  - 勉強会や Discord などで情報交換するのもおすすめです。
+- **ISUCON本を読む**
+  - 今回の内容はこれに全て書かれてます！(それ以外も)
 
 ---
 
 ## ご清聴ありがとうございました！
 
 Q&A
+
 
 ---

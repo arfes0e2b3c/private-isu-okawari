@@ -14,6 +14,7 @@ mysql -u isuconp -p isuconp
 ```
 
 ```bash
+# commentsテーブルにpost_idのインデックスを追加
 alter table comments add index post_id_idx(post_id);
 ```
 
@@ -54,7 +55,7 @@ top
 make analyze-slowquery-log
 ```
 
-全削除 `:%d` → [part2 の app.go](/lecture/part2/app.go) を貼り付け
+全削除 `:%d` → [part1 の app.go](/lecture/part2/app.go) を貼り付け
 保存して閉じる `:wq`
 
 その後、コードのビルドとアプリ再起動：
@@ -63,5 +64,25 @@ make analyze-slowquery-log
 # Go
 make deploy-app-go
 # Python
-make deploy-app-go
+make deploy-app-python
+```
+
+## +α(時間が余ったらやる): クエリの改善
+
+多分 ↑ で集計した結果でまだインデックスを使って改善できる場所が１箇所あります。
+クエリの集計結果を眺めてみて、どれが改善できそうか話し合って実践してみましょう
+
+## コードベースを編集して遅いクエリをマシにしよう
+
+```bash
+vim -n private_isu/webapp/golang/app.go
+```
+
+全削除 `:%d` → [part2 の app.go](/lecture/part2/app.go) を貼り付け
+保存して閉じる `:wq`
+
+その後、コードのビルドとアプリ再起動：
+
+```bash
+make deploy-app
 ```

@@ -5,9 +5,10 @@
 vi Makefile
 ```
 
-このリポジトリにある Makefile をコピぺして:wq で保存
+このリポジトリにある [Makefile](/Makefile) をコピぺ
 
 ```bash
+# 動作確認
 # これを叩いて何も表示されなければOK
 make help
 ```

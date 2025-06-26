@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -672,39 +671,6 @@ func postIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 
-
-func writeImageToFile(post Post) error {
-	// ディレクトリパスを指定
-	dirPath := "../public/images"
-	// ディレクトリが存在しない場合は作成
-	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create directory: %v", err)
-	}
-	// MIMEタイプに基づいてファイル拡張子を決定
-	var ext string
-	switch post.Mime {
-	case "image/jpeg":
-		ext = ".jpg"
-	case "image/png":
-		ext = ".png"
-	case "image/gif":
-		ext = ".gif"
-	default:
-		return fmt.Errorf("unsupported mime type: %s", post.Mime)
-	}
-	// ファイル名をpost IDに基づいて作成
-	fileName := fmt.Sprintf("%d%s", post.ID, ext)
-	// 完全なファイルパスを生成
-	filePath := filepath.Join(dirPath, fileName)
-	// ファイルにバイナリデータを書き出す
-	err := os.WriteFile(filePath, post.Imgdata, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to write image to file: %v", err)
-	}
-	fmt.Printf("Image successfully written to %s\n", filePath)
-	return nil
-}
-
 func getImage(w http.ResponseWriter, r *http.Request) {
 	pidStr := r.PathValue("id")
 	pid, err := strconv.Atoi(pidStr)
@@ -715,11 +681,6 @@ func getImage(w http.ResponseWriter, r *http.Request) {
 
 	post := Post{}
 	err = db.Get(&post, "SELECT * FROM `posts` WHERE `id` = ?", pid)
-	if err != nil {
-		log.Print(err)
-		return
-	}
-	err = writeImageToFile(post)
 	if err != nil {
 		log.Print(err)
 		return
