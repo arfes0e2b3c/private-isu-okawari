@@ -36,7 +36,7 @@ sudo vi /etc/nginx/sites-available/isucon.conf
 ```
 
 - `:%d` と入力して enter を押し、現在の内容をすべて削除
-- [isucon.conf の設定ファイル](/lecture/part3/static_file.conf) を貼り付け
+- [isucon.conf の設定ファイル](/lecture/part2/isucon1.conf) を貼り付け
 - `:wq` で保存して閉じる
 
 その後、nginx をリロードします：
