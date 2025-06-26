@@ -51,9 +51,9 @@ footer: " "
 
 - **kazu-gor**(@kazu-gor2)
 - 株式会社 エブリー SWE
-- ここに趣味やコメントを入れる
-- ここに趣味やコメントを入れる
-- ここに趣味やコメントを入れる
+- AI研究→ コンテンツMgr→ データエンジニア→ PO→ BE（今）
+- ISUCONは最下位でした
+- コーヒーが好きです☕️
 
 ![bg right w:400 h:400](./images/gorilla_default.jpg)
 
