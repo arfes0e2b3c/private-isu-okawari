@@ -266,7 +266,6 @@ def get_initialize():
     return ""
 
 
-
 @app.route("/login")
 def get_login():
     if get_session_user():
@@ -427,34 +426,34 @@ def get_posts():
 
 @ app.route("/posts/<id>")
 def get_posts_id(id):
-    cursor=db().cursor()
+    cursor = db().cursor()
 
     cursor.execute("SELECT `posts`.*, `users`.`account_name`, `users`.`authority`, `users`.`del_flg` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `posts`.`id` = %s AND `users`.`del_flg` = 0 LIMIT %s",
-       (id, POSTS_PER_PAGE))
-    posts=make_posts(cursor.fetchall(), all_comments=True)
+                   (id, POSTS_PER_PAGE))
+    posts = make_posts(cursor.fetchall(), all_comments=True)
     if not posts:
         flask.abort(404)
 
-    me=get_session_user()
+    me = get_session_user()
     return flask.render_template("post.html", post=posts[0], me=me)
 
 
 @ app.route("/", methods=["POST"])
 def post_index():
-    me=get_session_user()
+    me = get_session_user()
     if not me:
         return flask.redirect("/login")
 
     if flask.request.form["csrf_token"] != flask.session["csrf_token"]:
         flask.abort(422)
 
-    file=flask.request.files.get("file")
+    file = flask.request.files.get("file")
     if not file:
         flask.flash("画像が必要です")
         return flask.redirect("/")
 
     # 投稿のContent-Typeからファイルのタイプを決定する
-    mime=file.mimetype
+    mime = file.mimetype
     if mime not in ("image/jpeg", "image/png", "image/gif"):
         flask.flash("投稿できる画像形式はjpgとpngとgifだけです")
         return flask.redirect("/")
@@ -468,13 +467,13 @@ def post_index():
             return flask.redirect("/")
 
         tempf.seek(0)
-        imgdata=tempf.read()
+        imgdata = tempf.read()
 
-    query="INSERT INTO `posts` (`user_id`, `mime`, `imgdata`, `body`) VALUES (%s,%s,%s,%s)"
-    cursor=db().cursor()
+    query = "INSERT INTO `posts` (`user_id`, `mime`, `imgdata`, `body`) VALUES (%s,%s,%s,%s)"
+    cursor = db().cursor()
     cursor.execute(query, (me["id"], mime, imgdata,
                    flask.request.form.get("body")))
-    pid=cursor.lastrowid
+    pid = cursor.lastrowid
     return flask.redirect("/posts/%d" % pid)
 
 
@@ -482,15 +481,15 @@ def post_index():
 def get_image(id, ext):
     if not id:
         return ""
-    id=int(id)
+    id = int(id)
     if id == 0:
         return ""
 
-    cursor=db().cursor()
+    cursor = db().cursor()
     cursor.execute("SELECT * FROM `posts` WHERE `id` = %s", (id,))
-    post=cursor.fetchone()
+    post = cursor.fetchone()
 
-    mime=post["mime"]
+    mime = post["mime"]
     if (
         ext == "jpg"
         and mime == "image/jpeg"
@@ -506,22 +505,22 @@ def get_image(id, ext):
 
 @ app.route("/comment", methods=["POST"])
 def post_comment():
-    me=get_session_user()
+    me = get_session_user()
     if not me:
         return flask.redirect("/login")
 
     if flask.request.form["csrf_token"] != flask.session["csrf_token"]:
         flask.abort(422)
 
-    post_id=flask.request.form["post_id"]
+    post_id = flask.request.form["post_id"]
     if not re.match(r"[0-9]+", post_id):
         return "post_idは整数のみです"
-    post_id=int(post_id)
+    post_id = int(post_id)
 
-    query=(
+    query = (
         "INSERT INTO `comments` (`post_id`, `user_id`, `comment`) VALUES (%s, %s, %s)"
     )
-    cursor=db().cursor()
+    cursor = db().cursor()
     cursor.execute(query, (post_id, me["id"], flask.request.form["comment"]))
 
     return flask.redirect("/posts/%d" % post_id)
@@ -529,25 +528,25 @@ def post_comment():
 
 @ app.route("/admin/banned")
 def get_banned():
-    me=get_session_user()
+    me = get_session_user()
     if not me:
         return flask.redirect("/login")
 
     if me["authority"] == 0:
         flask.abort(403)
 
-    cursor=db().cursor()
+    cursor = db().cursor()
     cursor.execute(
         "SELECT * FROM `users` WHERE `authority` = 0 AND `del_flg` = 0 ORDER BY `created_at` DESC"
     )
-    users=cursor.fetchall()
+    users = cursor.fetchall()
 
     return flask.render_template("banned.html", users=users, me=me)
 
 
 @ app.route("/admin/banned", methods=["POST"])
 def post_banned():
-    me=get_session_user()
+    me = get_session_user()
     if not me:
         return flask.redirect("/login")
 
@@ -557,11 +556,9 @@ def post_banned():
     if flask.request.form["csrf_token"] != flask.session["csrf_token"]:
         flask.abort(422)
 
-    cursor=db().cursor()
-    query="UPDATE `users` SET `del_flg` = %s WHERE `id` = %s"
+    cursor = db().cursor()
+    query = "UPDATE `users` SET `del_flg` = %s WHERE `id` = %s"
     for id in flask.request.form.getlist("uid", type=int):
         cursor.execute(query, (1, id))
 
     return flask.redirect("/admin/banned")
-
-
