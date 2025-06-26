@@ -1,10 +1,10 @@
-# 画像を静的ファイルとしてキャッシュしよう（Makefile 対応版）
+# 画像を静的ファイルとしてキャッシュしよう
 
 ## 問題となるエンドポイントの特定
 
 ```bash
 # 集計用のコマンド
-make analyze-nginx
+make analyze-access-log
 ```
 
 ## 画像を静的ファイルから返す設定
@@ -21,6 +21,7 @@ sudo vi /etc/nginx/sites-available/isucon.conf
 その後、nginx をリロードします：
 
 ```bash
+nginx -t
 make reload-nginx
 ```
 
@@ -32,11 +33,7 @@ make rotate-access-log
 # ベンチマーカーを走らせるための、スコア計測用コマンド
 make benchmark
 # 集計用のコマンド
-make analyze-nginx
+make analyze-access-log
 ```
 
 > 画像系のエンドポイント（`/image/...`）のレスポンス時間が **ほぼ 0 秒** になっていれば成功です！
-
-```
-
-```
