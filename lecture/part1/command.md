@@ -60,5 +60,8 @@ make analyze-query
 その後、コードのビルドとアプリ再起動：
 
 ```bash
-make deploy-app
+# Go
+make deploy-app-go
+# Python
+make deploy-app-go
 ```

@@ -23,5 +23,5 @@ make rotate-access-log
 # ベンチマーカーを走らせるための、スコア計測用コマンド
 make benchmark
 # 集計用のコマンド
-make analyze-nginx
+make analyze-access-log
 ```
