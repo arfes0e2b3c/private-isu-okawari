@@ -143,14 +143,14 @@ def make_posts(results, all_comments=False):
     user_ids = list(set([post["user_id"] for post in results]))
     cursor.execute(
         "SELECT * FROM `users` WHERE `id` IN %s",
-        (user_ids,)
+        (tuple(user_ids),)
     )
     users_dict = {user["id"]: user for user in cursor}
 
     # コメント数を一括取得
     cursor.execute(
         "SELECT `post_id`, COUNT(*) AS `count` FROM `comments` WHERE `post_id` IN %s GROUP BY `post_id`",
-        (post_ids,)
+        (tuple(post_ids),)
     )
     comment_counts = {row["post_id"]: row["count"] for row in cursor}
 
@@ -158,7 +158,7 @@ def make_posts(results, all_comments=False):
     if all_comments:
         cursor.execute(
             "SELECT * FROM `comments` WHERE `post_id` IN %s ORDER BY `post_id`, `created_at` DESC",
-            (post_ids,)
+            (tuple(post_ids),)
         )
     else:
         # 各投稿の最新3件のコメントを取得（サブクエリを使用）
@@ -173,7 +173,7 @@ def make_posts(results, all_comments=False):
             ) < 3
             ORDER BY c1.`post_id`, c1.`created_at` DESC
             """,
-            (post_ids,)
+            (tuple(post_ids),)
         )
 
     # コメントを投稿IDごとにグループ化
@@ -189,7 +189,7 @@ def make_posts(results, all_comments=False):
     if comment_user_ids:
         cursor.execute(
             "SELECT * FROM `users` WHERE `id` IN %s",
-            (list(comment_user_ids),)
+            (tuple(comment_user_ids),)
         )
         comment_users_dict = {user["id"]: user for user in cursor}
     else:
@@ -212,7 +212,6 @@ def make_posts(results, all_comments=False):
 
             if len(posts) >= POSTS_PER_PAGE:
                 break
-
     return posts
 
 
@@ -220,6 +219,7 @@ def make_posts(results, all_comments=False):
 static_path = pathlib.Path(__file__).resolve().parent.parent / "public"
 app = flask.Flask(__name__, static_folder=str(static_path), static_url_path="")
 # app.debug = True
+app.secret_key = os.environ.get("SECRET_KEY", "secret")
 
 # Flask-Session
 app.config["SESSION_TYPE"] = "memcached"
@@ -264,6 +264,7 @@ def nl2br(eval_ctx, value):
 def get_initialize():
     db_initialize()
     return ""
+
 
 
 @app.route("/login")
@@ -338,8 +339,8 @@ def get_index():
 
     cursor = db().cursor()
     cursor.execute(
-        "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `del_flg` = 0 ORDER BY `created_at` DESC LIMIT %s",
-        POSTS_PER_PAGE,)
+        "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `users`.`del_flg` = 0 ORDER BY `posts`.`created_at` DESC LIMIT %s",
+        (POSTS_PER_PAGE,))
     posts = make_posts(cursor.fetchall())
 
     return flask.render_template("index.html", posts=posts, me=me)
@@ -358,7 +359,7 @@ def get_user_list(account_name):
         flask.abort(404)  # raises exception
 
     cursor.execute(
-        "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `user_id` = %s ORDER BY `created_at` DESC LIMIT %s",
+        "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `user_id` = %s ORDER BY `posts`.`created_at` DESC LIMIT %s",
         (user["id"], POSTS_PER_PAGE,),
     )
     posts = make_posts(cursor.fetchall())
@@ -378,7 +379,7 @@ def get_user_list(account_name):
     if post_count > 0:
         cursor.execute(
             "SELECT COUNT(*) AS count FROM `comments` WHERE `post_id` IN %s",
-            (post_ids,),
+            (tuple(post_ids),),
         )
         commented_count = cursor.fetchone()["count"]
 
@@ -411,15 +412,16 @@ def get_posts():
     if max_created_at:
         max_created_at = _parse_iso8601(max_created_at)
         cursor.execute(
-            "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `created_at` <= %s ORDER BY `created_at` DESC LIMIT %s",
+            "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `posts`.`created_at` <= %s ORDER BY `posts`.`created_at` DESC LIMIT %s",
             (max_created_at, POSTS_PER_PAGE,),
         )
     else:
         cursor.execute(
-            "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE ORDER BY `created_at` DESC LIMIT %s",
+            "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `users`.`del_flg` = 0 ORDER BY `posts`.`created_at` DESC LIMIT %s",
             (POSTS_PER_PAGE,),
-    results=cursor.fetchall()
-    posts=make_posts(results)
+        )
+    results = cursor.fetchall()
+    posts = make_posts(results)
     return flask.render_template("posts.html", posts=posts)
 
 
@@ -427,7 +429,7 @@ def get_posts():
 def get_posts_id(id):
     cursor=db().cursor()
 
-    cursor.execute("SELECT * FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `id` = %s AND `del_flg` = 0 LIMIT %s",
+    cursor.execute("SELECT `posts`.*, `users`.`account_name`, `users`.`authority`, `users`.`del_flg` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `posts`.`id` = %s AND `users`.`del_flg` = 0 LIMIT %s",
        (id, POSTS_PER_PAGE))
     posts=make_posts(cursor.fetchall(), all_comments=True)
     if not posts:
@@ -529,7 +531,7 @@ def post_comment():
 def get_banned():
     me=get_session_user()
     if not me:
-        flask.redirect("/login")
+        return flask.redirect("/login")
 
     if me["authority"] == 0:
         flask.abort(403)
@@ -540,14 +542,14 @@ def get_banned():
     )
     users=cursor.fetchall()
 
-    flask.render_template("banned.html", users=users, me=me)
+    return flask.render_template("banned.html", users=users, me=me)
 
 
 @ app.route("/admin/banned", methods=["POST"])
 def post_banned():
     me=get_session_user()
     if not me:
-        flask.redirect("/login")
+        return flask.redirect("/login")
 
     if me["authority"] == 0:
         flask.abort(403)
@@ -561,3 +563,5 @@ def post_banned():
         cursor.execute(query, (1, id))
 
     return flask.redirect("/admin/banned")
+
+
