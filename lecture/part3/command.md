@@ -12,7 +12,10 @@ vim -n private_isu/webapp/golang/app.go
 その後、アプリケーションをビルドして再起動
 
 ```bash
-make deploy-app
+# Golang
+make deploy-app-go
+# Python
+make deploy-app-python
 ```
 
 次に、スコアが変わっているか検証：

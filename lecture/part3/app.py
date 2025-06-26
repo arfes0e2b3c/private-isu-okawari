@@ -134,92 +134,84 @@ def make_posts(results, all_comments=False):
     posts = []
     cursor = db().cursor()
 
-    if not results:
+    # 投稿IDのリストを作成
+    post_ids = [post["id"] for post in results]
+    if not post_ids:
         return posts
 
-    # 投稿IDを収集
-    post_ids = [post["id"] for post in results]
-    user_ids = [post["user_id"] for post in results]
-
-    # ユーザー情報を一括取得
+    # 投稿のユーザー情報を一括取得
+    user_ids = list(set([post["user_id"] for post in results]))
     cursor.execute(
         "SELECT * FROM `users` WHERE `id` IN %s",
-        (user_ids,)
+        (tuple(user_ids),)
     )
-    users_by_id = {user["id"]: user for user in cursor.fetchall()}
+    users_dict = {user["id"]: user for user in cursor}
 
     # コメント数を一括取得
     cursor.execute(
         "SELECT `post_id`, COUNT(*) AS `count` FROM `comments` WHERE `post_id` IN %s GROUP BY `post_id`",
-        (post_ids,)
+        (tuple(post_ids),)
     )
-    comment_counts = {row["post_id"]: row["count"]
-                      for row in cursor.fetchall()}
+    comment_counts = {row["post_id"]: row["count"] for row in cursor}
 
     # コメントを一括取得
     if all_comments:
         cursor.execute(
             "SELECT * FROM `comments` WHERE `post_id` IN %s ORDER BY `post_id`, `created_at` DESC",
-            (post_ids,)
+            (tuple(post_ids),)
         )
     else:
-        # 各投稿につき最新3件のコメントを取得
+        # 各投稿の最新3件のコメントを取得（サブクエリを使用）
         cursor.execute(
             """
-            SELECT * FROM (
-                SELECT *, ROW_NUMBER() OVER (PARTITION BY `post_id` ORDER BY `created_at` DESC) as rn
-                FROM `comments` 
-                WHERE `post_id` IN %s
-            ) ranked 
-            WHERE rn <= 3 
-            ORDER BY `post_id`, `created_at` DESC
+            SELECT c1.* FROM `comments` c1
+            WHERE c1.`post_id` IN %s
+            AND (
+                SELECT COUNT(*) FROM `comments` c2
+                WHERE c2.`post_id` = c1.`post_id`
+                AND c2.`created_at` > c1.`created_at`
+            ) < 3
+            ORDER BY c1.`post_id`, c1.`created_at` DESC
             """,
-            (post_ids,)
+            (tuple(post_ids),)
         )
 
+    # コメントを投稿IDごとにグループ化
     comments_by_post = {}
     comment_user_ids = set()
-    for comment in cursor.fetchall():
-        post_id = comment["post_id"]
-        if post_id not in comments_by_post:
-            comments_by_post[post_id] = []
-        comments_by_post[post_id].append(comment)
+    for comment in cursor:
+        if comment["post_id"] not in comments_by_post:
+            comments_by_post[comment["post_id"]] = []
+        comments_by_post[comment["post_id"]].append(comment)
         comment_user_ids.add(comment["user_id"])
 
-    # コメント作成者の情報を一括取得
+    # コメントのユーザー情報を一括取得
     if comment_user_ids:
         cursor.execute(
             "SELECT * FROM `users` WHERE `id` IN %s",
-            (list(comment_user_ids),)
+            (tuple(comment_user_ids),)
         )
-        comment_users_by_id = {user["id"]: user for user in cursor.fetchall()}
+        comment_users_dict = {user["id"]: user for user in cursor}
     else:
-        comment_users_by_id = {}
+        comment_users_dict = {}
 
-    # 投稿データを構築
+    # 投稿データを組み立て
     for post in results:
-        post_id = post["id"]
-        user_id = post["user_id"]
+        post["user"] = users_dict.get(post["user_id"])
 
-        # コメント数設定
-        post["comment_count"] = comment_counts.get(post_id, 0)
+        if not post["user"]["del_flg"]:
+            post["comment_count"] = comment_counts.get(post["id"], 0)
 
-        # コメント設定
-        comments = comments_by_post.get(post_id, [])
-        for comment in comments:
-            comment["user"] = comment_users_by_id.get(comment["user_id"])
-        comments.reverse()
-        post["comments"] = comments
+            comments = comments_by_post.get(post["id"], [])
+            for comment in comments:
+                comment["user"] = comment_users_dict.get(comment["user_id"])
+            comments.reverse()  # 作成日時の昇順に並べ替え
+            post["comments"] = comments
 
-        # 投稿者設定
-        post["user"] = users_by_id.get(user_id)
-
-        if post["user"] and not post["user"]["del_flg"]:
             posts.append(post)
 
-        if len(posts) >= POSTS_PER_PAGE:
-            break
-
+            if len(posts) >= POSTS_PER_PAGE:
+                break
     return posts
 
 
@@ -227,6 +219,7 @@ def make_posts(results, all_comments=False):
 static_path = pathlib.Path(__file__).resolve().parent.parent / "public"
 app = flask.Flask(__name__, static_folder=str(static_path), static_url_path="")
 # app.debug = True
+app.secret_key = os.environ.get("SECRET_KEY", "secret")
 
 # Flask-Session
 app.config["SESSION_TYPE"] = "memcached"
@@ -345,14 +338,14 @@ def get_index():
 
     cursor = db().cursor()
     cursor.execute(
-        "SELECT `id`, `user_id`, `body`, `created_at`, `mime` FROM `posts` ORDER BY `created_at` DESC"
-    )
+        "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `users`.`del_flg` = 0 ORDER BY `posts`.`created_at` DESC LIMIT %s",
+        (50,))
     posts = make_posts(cursor.fetchall())
 
     return flask.render_template("index.html", posts=posts, me=me)
 
 
-@app.route("/@<account_name>")
+@ app.route("/@<account_name>")
 def get_user_list(account_name):
     cursor = db().cursor()
 
@@ -365,8 +358,8 @@ def get_user_list(account_name):
         flask.abort(404)  # raises exception
 
     cursor.execute(
-        "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `user_id` = %s ORDER BY `created_at` DESC",
-        (user["id"],),
+        "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `user_id` = %s ORDER BY `posts`.`created_at` DESC LIMIT %s",
+        (user["id"], 50,),
     )
     posts = make_posts(cursor.fetchall())
 
@@ -385,7 +378,7 @@ def get_user_list(account_name):
     if post_count > 0:
         cursor.execute(
             "SELECT COUNT(*) AS count FROM `comments` WHERE `post_id` IN %s",
-            (post_ids,),
+            (tuple(post_ids),),
         )
         commented_count = cursor.fetchone()["count"]
 
@@ -411,30 +404,32 @@ def _parse_iso8601(s):
     return datetime.datetime(*map(int, m.groups()))
 
 
-@app.route("/posts")
+@ app.route("/posts")
 def get_posts():
     cursor = db().cursor()
     max_created_at = flask.request.args["max_created_at"] or None
     if max_created_at:
         max_created_at = _parse_iso8601(max_created_at)
         cursor.execute(
-            "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `created_at` <= %s ORDER BY `created_at` DESC",
-            (max_created_at,),
+            "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `posts`.`created_at` <= %s ORDER BY `posts`.`created_at` DESC LIMIT %s",
+            (max_created_at, 50,),
         )
     else:
         cursor.execute(
-            "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE ORDER BY `created_at` DESC"
+            "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `users`.`del_flg` = 0 ORDER BY `posts`.`created_at` DESC LIMIT %s",
+            (50,),
         )
     results = cursor.fetchall()
     posts = make_posts(results)
     return flask.render_template("posts.html", posts=posts)
 
 
-@app.route("/posts/<id>")
+@ app.route("/posts/<id>")
 def get_posts_id(id):
     cursor = db().cursor()
 
-    cursor.execute("SELECT * FROM `posts` WHERE `id` = %s", (id,))
+    cursor.execute("SELECT `posts`.*, `users`.`account_name`, `users`.`authority`, `users`.`del_flg` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `posts`.`id` = %s AND `users`.`del_flg` = 0 LIMIT %s",
+                   (id, 50))
     posts = make_posts(cursor.fetchall(), all_comments=True)
     if not posts:
         flask.abort(404)
@@ -443,7 +438,7 @@ def get_posts_id(id):
     return flask.render_template("post.html", post=posts[0], me=me)
 
 
-@app.route("/", methods=["POST"])
+@ app.route("/", methods=["POST"])
 def post_index():
     me = get_session_user()
     if not me:
@@ -482,7 +477,7 @@ def post_index():
     return flask.redirect("/posts/%d" % pid)
 
 
-@app.route("/image/<id>.<ext>")
+@ app.route("/image/<id>.<ext>")
 def get_image(id, ext):
     if not id:
         return ""
@@ -508,7 +503,7 @@ def get_image(id, ext):
     flask.abort(404)
 
 
-@app.route("/comment", methods=["POST"])
+@ app.route("/comment", methods=["POST"])
 def post_comment():
     me = get_session_user()
     if not me:
@@ -531,11 +526,11 @@ def post_comment():
     return flask.redirect("/posts/%d" % post_id)
 
 
-@app.route("/admin/banned")
+@ app.route("/admin/banned")
 def get_banned():
     me = get_session_user()
     if not me:
-        flask.redirect("/login")
+        return flask.redirect("/login")
 
     if me["authority"] == 0:
         flask.abort(403)
@@ -546,14 +541,14 @@ def get_banned():
     )
     users = cursor.fetchall()
 
-    flask.render_template("banned.html", users=users, me=me)
+    return flask.render_template("banned.html", users=users, me=me)
 
 
-@app.route("/admin/banned", methods=["POST"])
+@ app.route("/admin/banned", methods=["POST"])
 def post_banned():
     me = get_session_user()
     if not me:
-        flask.redirect("/login")
+        return flask.redirect("/login")
 
     if me["authority"] == 0:
         flask.abort(403)

@@ -77,8 +77,8 @@ $ sudo systemctl restart isu-ruby
 Ruby実装からPHP実装に切り替えるには、以下の操作を行います。まず、Rubyサービスを停止・無効化します:
 
 ```bash
-$ sudo systemctl stop isu-ruby
-$ sudo systemctl disable isu-ruby
+$ sudo systemctl stop isu-go
+$ sudo systemctl disable isu-go
 ```
 
 ```bash
@@ -108,11 +108,6 @@ $ sudo tail -f /var/log/nginx/error.log
 Ruby実装からGo実装に切り替えるには、以下の操作を行います。まず、Rubyサービスを停止・無効化します:
 
 ```bash
-$ sudo systemctl stop isu-ruby
-$ sudo systemctl disable isu-ruby
-```
-
-```bash
 $ sudo systemctl start isu-go
 $ sudo systemctl enable isu-go
 ```
@@ -132,14 +127,14 @@ $ sudo journalctl -f -u isu-go
 Ruby実装からPython実装に切り替えるには、以下の操作を行います。まず、Rubyサービスを停止・無効化します:
 
 ```bash
-$ sudo systemctl stop isu-ruby
-$ sudo systemctl disable isu-ruby
+sudo systemctl stop isu-go
+sudo systemctl disable isu-go
 ```
 
 ```bash
 # Python 用 systemd ユニットを有効化・起動
-$ sudo systemctl start isu-python
-$ sudo systemctl enable isu-python
+sudo systemctl start isu-python
+sudo systemctl enable isu-python
 ```
 
 プログラムの詳しい起動方法は、`/etc/systemd/system/isu-python.service`を参照してください。
@@ -154,8 +149,8 @@ $ sudo journalctl -f -u isu-python
 Ruby実装からNode.js実装に切り替えるには、以下の操作を行います。まず、Rubyサービスを停止・無効化します:
 
 ```bash
-$ sudo systemctl stop isu-ruby
-$ sudo systemctl disable isu-ruby
+$ sudo systemctl stop isu-go
+$ sudo systemctl disable isu-go
 ```
 
 ```bash
