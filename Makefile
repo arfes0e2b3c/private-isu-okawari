@@ -60,8 +60,12 @@ bench-analyze:
 	make analyze-query
 
 # コード変更時のルーチン（app.go → build → 再起動）
-deploy-app:
+deploy-app-go:
 	make build-app
+
+# Python アプリのデプロイルーチン
+deploy-app-python:
+	sudo systemctl restart isu-python
 
 # 静的ファイル設定変更後のNginx再起動
 reload-nginx:
