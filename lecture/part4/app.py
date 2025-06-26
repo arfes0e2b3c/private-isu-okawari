@@ -339,7 +339,7 @@ def get_index():
     cursor = db().cursor()
     cursor.execute(
         "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `users`.`del_flg` = 0 ORDER BY `posts`.`created_at` DESC LIMIT %s",
-        (POSTS_PER_PAGE,))
+        (50,))
     posts = make_posts(cursor.fetchall())
 
     return flask.render_template("index.html", posts=posts, me=me)
@@ -359,7 +359,7 @@ def get_user_list(account_name):
 
     cursor.execute(
         "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `user_id` = %s ORDER BY `posts`.`created_at` DESC LIMIT %s",
-        (user["id"], POSTS_PER_PAGE,),
+        (user["id"], 50,),
     )
     posts = make_posts(cursor.fetchall())
 
@@ -412,12 +412,12 @@ def get_posts():
         max_created_at = _parse_iso8601(max_created_at)
         cursor.execute(
             "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `posts`.`created_at` <= %s ORDER BY `posts`.`created_at` DESC LIMIT %s",
-            (max_created_at, POSTS_PER_PAGE,),
+            (max_created_at, 50,),
         )
     else:
         cursor.execute(
             "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `users`.`del_flg` = 0 ORDER BY `posts`.`created_at` DESC LIMIT %s",
-            (POSTS_PER_PAGE,),
+            (50,),
         )
     results = cursor.fetchall()
     posts = make_posts(results)
@@ -429,7 +429,7 @@ def get_posts_id(id):
     cursor = db().cursor()
 
     cursor.execute("SELECT `posts`.*, `users`.`account_name`, `users`.`authority`, `users`.`del_flg` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `posts`.`id` = %s AND `users`.`del_flg` = 0 LIMIT %s",
-                   (id, POSTS_PER_PAGE))
+                   (id, 50))
     posts = make_posts(cursor.fetchall(), all_comments=True)
     if not posts:
         flask.abort(404)
