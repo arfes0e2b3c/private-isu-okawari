@@ -2,9 +2,6 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: private-isu template
 
 Parameters:
-  GitHubUsername:
-    Description: "GitHub Username for SSH public key"
-    Type: String
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: Name of an existing EC2 KeyPair to SSH for private-isu
@@ -76,6 +73,7 @@ Resources:
     Properties:
       InstanceType: c7a.large
       ImageId: ami-0f4ce49caca2bbc9d
+      KeyName: !Ref KeyName # 追加
       SubnetId: !Ref MySubnet
       PrivateIpAddress: "192.168.1.10"
       SecurityGroupIds:
@@ -86,17 +84,13 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          GITHUB_USER=${GitHubUsername}
-          mkdir -p /home/isucon/.ssh
-          curl -s https://github.com/$GITHUB_USER.keys >> /home/isucon/.ssh/authorized_keys
-          chown -R isucon:isucon /home/isucon/.ssh
-          chmod 600 /home/isucon/.ssh/authorized_keys
 
   ServerInstance2:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: c7a.large
       ImageId: ami-0f4ce49caca2bbc9d
+      KeyName: !Ref KeyName # 追加
       SubnetId: !Ref MySubnet
       PrivateIpAddress: "192.168.1.11"
       SecurityGroupIds:
@@ -107,17 +101,13 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          GITHUB_USER=${GitHubUsername}
-          mkdir -p /home/isucon/.ssh
-          curl -s https://github.com/$GITHUB_USER.keys >> /home/isucon/.ssh/authorized_keys
-          chown -R isucon:isucon /home/isucon/.ssh
-          chmod 600 /home/isucon/.ssh/authorized_keys
 
   ServerInstance3:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: c7a.large
       ImageId: ami-0f4ce49caca2bbc9d
+      KeyName: !Ref KeyName # 追加
       SubnetId: !Ref MySubnet
       PrivateIpAddress: "192.168.1.12"
       SecurityGroupIds:
@@ -128,17 +118,13 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          GITHUB_USER=${GitHubUsername}
-          mkdir -p /home/isucon/.ssh
-          curl -s https://github.com/$GITHUB_USER.keys >> /home/isucon/.ssh/authorized_keys
-          chown -R isucon:isucon /home/isucon/.ssh
-          chmod 600 /home/isucon/.ssh/authorized_keys
 
   BenchmarkerInstance:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: c7a.xlarge
       ImageId: ami-0f4ce49caca2bbc9d
+      KeyName: !Ref KeyName # 追加
       SubnetId: !Ref MySubnet
       PrivateIpAddress: "192.168.1.20"
       SecurityGroupIds:
@@ -149,11 +135,6 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          GITHUB_USER=${GitHubUsername}
-          mkdir -p /home/isucon/.ssh
-          curl -s https://github.com/$GITHUB_USER.keys >> /home/isucon/.ssh/authorized_keys
-          chown -R isucon:isucon /home/isucon/.ssh
-          chmod 600 /home/isucon/.ssh/authorized_keys
 
   ServerEIP1:
     Type: AWS::EC2::EIP
