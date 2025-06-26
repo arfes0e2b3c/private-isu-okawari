@@ -134,6 +134,9 @@ def make_posts(results, all_comments=False):
     posts = []
     cursor = db().cursor()
 
+    if not results:
+        return posts
+
     # 投稿IDのリストを作成
     post_ids = [post["id"] for post in results]
     if not post_ids:
