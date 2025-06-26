@@ -41,5 +41,5 @@ make analyze-access-log
 ```bash
 # どのクエリがどれくらい叩かれているかを分析する
 # 中身はpt-query-digestのコマンド
-make analyze-query
+make analyze-slowquery-log
 ```

@@ -33,7 +33,7 @@ make benchmark
 ベンチマーカーが終わったらクエリ集計：
 
 ```bash
-make analyze-query
+make analyze-slowquery-log
 ```
 
 ## 結果を確認する
@@ -51,7 +51,7 @@ make benchmark
 top
 # 叩かれたクエリのうち、合計時間が長い順に５つを分析して出力するコマンド(ちょっと時間かかるかも)
 
-make analyze-query
+make analyze-slowquery-log
 ```
 
 全削除 `:%d` → [part2 の app.go](/lecture/part2/app.go) を貼り付け

@@ -295,7 +295,7 @@ SUM (合計時間) や AVG (平均時間) が大きいところが怪しい！
 ```bash
 # どのクエリがどれくらい叩かれているかを分析する
 # 中身はpt-query-digestのコマンド
-make analyze-query
+make analyze-slowquery-log
 ```
 
 ---
