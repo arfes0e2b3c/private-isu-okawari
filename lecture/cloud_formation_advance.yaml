@@ -1,0 +1,173 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: private-isu template
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to SSH for private-isu
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "192.168.0.0/16"
+
+  MySubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: "192.168.1.0/24"
+      AvailabilityZone: ap-northeast-1a
+
+  MyInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref MyInternetGateway
+
+  MyRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref MyRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref MyInternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref MySubnet
+      RouteTableId: !Ref MyRouteTable
+
+  MySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH, HTTP, HTTPS access
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: -1
+          CidrIp: 192.168.0.0/16
+
+  ServerInstance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: c7a.large
+      ImageId: ami-0f4ce49caca2bbc9d
+      KeyName: !Ref KeyName # 追加
+      SubnetId: !Ref MySubnet
+      PrivateIpAddress: "192.168.1.10"
+      SecurityGroupIds:
+        - !Ref MySecurityGroup
+      Tags:
+        - Key: Name
+          Value: private-isu-1
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+
+  ServerInstance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: c7a.large
+      ImageId: ami-0f4ce49caca2bbc9d
+      KeyName: !Ref KeyName # 追加
+      SubnetId: !Ref MySubnet
+      PrivateIpAddress: "192.168.1.11"
+      SecurityGroupIds:
+        - !Ref MySecurityGroup
+      Tags:
+        - Key: Name
+          Value: private-isu-2
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+
+  ServerInstance3:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: c7a.large
+      ImageId: ami-0f4ce49caca2bbc9d
+      KeyName: !Ref KeyName # 追加
+      SubnetId: !Ref MySubnet
+      PrivateIpAddress: "192.168.1.12"
+      SecurityGroupIds:
+        - !Ref MySecurityGroup
+      Tags:
+        - Key: Name
+          Value: private-isu-3
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+
+  BenchmarkerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: c7a.xlarge
+      ImageId: ami-0f4ce49caca2bbc9d
+      KeyName: !Ref KeyName # 追加
+      SubnetId: !Ref MySubnet
+      PrivateIpAddress: "192.168.1.20"
+      SecurityGroupIds:
+        - !Ref MySecurityGroup
+      Tags:
+        - Key: Name
+          Value: private-isu-bench
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+
+  ServerEIP1:
+    Type: AWS::EC2::EIP
+
+  ServerEIP2:
+    Type: AWS::EC2::EIP
+
+  ServerEIP3:
+    Type: AWS::EC2::EIP
+
+  BenchmarkerEIP:
+    Type: AWS::EC2::EIP
+
+  ServerEIPAssociation1:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref ServerInstance1
+      EIP: !Ref ServerEIP1
+
+  ServerEIPAssociation2:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref ServerInstance2
+      EIP: !Ref ServerEIP2
+
+  ServerEIPAssociation3:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref ServerInstance3
+      EIP: !Ref ServerEIP3
+
+  BenchmarkerEIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref BenchmarkerInstance
+      EIP: !Ref BenchmarkerEIP

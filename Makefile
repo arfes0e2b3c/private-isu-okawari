@@ -15,6 +15,13 @@ benchmarker/userdata/img: benchmarker/userdata/img.zip
 
 # Makefile for ISUCON lecture command shortcuts
 
+# goからpythonに変更
+change-to-python:
+	sudo systemctl stop isu-go
+	sudo systemctl disable isu-go
+	sudo systemctl start isu-python
+	sudo systemctl enable isu-python
+
 # 基本ベンチマーク
 benchmark:
 	/home/isucon/private_isu/benchmarker/bin/benchmarker \
@@ -27,7 +34,7 @@ rotate-slowlog:
 	sudo systemctl restart mysql
 
 # MySQL クエリ集計
-analyze-query:
+analyze-slowquery-log:
 	sudo pt-query-digest --limit 5 --explain \
 		h=localhost,u=isuconp,p=isuconp,D=isuconp \
 		/var/log/mysql/mysql-slow.log
@@ -57,7 +64,7 @@ prepare:
 # ベンチ → クエリ集計 まで一括
 bench-analyze:
 	make benchmark
-	make analyze-query
+	make analyze-slowquery-log
 
 # コード変更時のルーチン（app.go → build → 再起動）
 deploy-app-go:
