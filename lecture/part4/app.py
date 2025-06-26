@@ -143,14 +143,14 @@ def make_posts(results, all_comments=False):
     user_ids = list(set([post["user_id"] for post in results]))
     cursor.execute(
         "SELECT * FROM `users` WHERE `id` IN %s",
-        (user_ids,)
+        (tuple(user_ids),)
     )
     users_dict = {user["id"]: user for user in cursor}
 
     # コメント数を一括取得
     cursor.execute(
         "SELECT `post_id`, COUNT(*) AS `count` FROM `comments` WHERE `post_id` IN %s GROUP BY `post_id`",
-        (post_ids,)
+        (tuple(post_ids),)
     )
     comment_counts = {row["post_id"]: row["count"] for row in cursor}
 
@@ -158,7 +158,7 @@ def make_posts(results, all_comments=False):
     if all_comments:
         cursor.execute(
             "SELECT * FROM `comments` WHERE `post_id` IN %s ORDER BY `post_id`, `created_at` DESC",
-            (post_ids,)
+            (tuple(post_ids),)
         )
     else:
         # 各投稿の最新3件のコメントを取得（サブクエリを使用）
@@ -173,7 +173,7 @@ def make_posts(results, all_comments=False):
             ) < 3
             ORDER BY c1.`post_id`, c1.`created_at` DESC
             """,
-            (post_ids,)
+            (tuple(post_ids),)
         )
 
     # コメントを投稿IDごとにグループ化
@@ -189,7 +189,7 @@ def make_posts(results, all_comments=False):
     if comment_user_ids:
         cursor.execute(
             "SELECT * FROM `users` WHERE `id` IN %s",
-            (list(comment_user_ids),)
+            (tuple(comment_user_ids),)
         )
         comment_users_dict = {user["id"]: user for user in cursor}
     else:
@@ -212,7 +212,6 @@ def make_posts(results, all_comments=False):
 
             if len(posts) >= POSTS_PER_PAGE:
                 break
-
     return posts
 
 
@@ -220,6 +219,7 @@ def make_posts(results, all_comments=False):
 static_path = pathlib.Path(__file__).resolve().parent.parent / "public"
 app = flask.Flask(__name__, static_folder=str(static_path), static_url_path="")
 # app.debug = True
+app.secret_key = os.environ.get("SECRET_KEY", "secret")
 
 # Flask-Session
 app.config["SESSION_TYPE"] = "memcached"
@@ -338,8 +338,8 @@ def get_index():
 
     cursor = db().cursor()
     cursor.execute(
-        "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `del_flg` = 0 ORDER BY `created_at` DESC LIMIT %s",
-        POSTS_PER_PAGE,)
+        "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `users`.`del_flg` = 0 ORDER BY `posts`.`created_at` DESC LIMIT %s",
+        (POSTS_PER_PAGE,))
     posts = make_posts(cursor.fetchall())
 
     return flask.render_template("index.html", posts=posts, me=me)
@@ -358,7 +358,7 @@ def get_user_list(account_name):
         flask.abort(404)  # raises exception
 
     cursor.execute(
-        "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `user_id` = %s ORDER BY `created_at` DESC LIMIT %s",
+        "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `user_id` = %s ORDER BY `posts`.`created_at` DESC LIMIT %s",
         (user["id"], POSTS_PER_PAGE,),
     )
     posts = make_posts(cursor.fetchall())
@@ -378,7 +378,7 @@ def get_user_list(account_name):
     if post_count > 0:
         cursor.execute(
             "SELECT COUNT(*) AS count FROM `comments` WHERE `post_id` IN %s",
-            (post_ids,),
+            (tuple(post_ids),),
         )
         commented_count = cursor.fetchone()["count"]
 
@@ -411,48 +411,49 @@ def get_posts():
     if max_created_at:
         max_created_at = _parse_iso8601(max_created_at)
         cursor.execute(
-            "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `created_at` <= %s ORDER BY `created_at` DESC LIMIT %s",
+            "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `posts`.`created_at` <= %s ORDER BY `posts`.`created_at` DESC LIMIT %s",
             (max_created_at, POSTS_PER_PAGE,),
         )
     else:
         cursor.execute(
-            "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE ORDER BY `created_at` DESC LIMIT %s",
+            "SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `users`.`del_flg` = 0 ORDER BY `posts`.`created_at` DESC LIMIT %s",
             (POSTS_PER_PAGE,),
-    results=cursor.fetchall()
-    posts=make_posts(results)
+        )
+    results = cursor.fetchall()
+    posts = make_posts(results)
     return flask.render_template("posts.html", posts=posts)
 
 
 @ app.route("/posts/<id>")
 def get_posts_id(id):
-    cursor=db().cursor()
+    cursor = db().cursor()
 
-    cursor.execute("SELECT * FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `id` = %s AND `del_flg` = 0 LIMIT %s",
-       (id, POSTS_PER_PAGE))
-    posts=make_posts(cursor.fetchall(), all_comments=True)
+    cursor.execute("SELECT `posts`.*, `users`.`account_name`, `users`.`authority`, `users`.`del_flg` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `posts`.`id` = %s AND `users`.`del_flg` = 0 LIMIT %s",
+                   (id, POSTS_PER_PAGE))
+    posts = make_posts(cursor.fetchall(), all_comments=True)
     if not posts:
         flask.abort(404)
 
-    me=get_session_user()
+    me = get_session_user()
     return flask.render_template("post.html", post=posts[0], me=me)
 
 
 @ app.route("/", methods=["POST"])
 def post_index():
-    me=get_session_user()
+    me = get_session_user()
     if not me:
         return flask.redirect("/login")
 
     if flask.request.form["csrf_token"] != flask.session["csrf_token"]:
         flask.abort(422)
 
-    file=flask.request.files.get("file")
+    file = flask.request.files.get("file")
     if not file:
         flask.flash("画像が必要です")
         return flask.redirect("/")
 
     # 投稿のContent-Typeからファイルのタイプを決定する
-    mime=file.mimetype
+    mime = file.mimetype
     if mime not in ("image/jpeg", "image/png", "image/gif"):
         flask.flash("投稿できる画像形式はjpgとpngとgifだけです")
         return flask.redirect("/")
@@ -466,13 +467,13 @@ def post_index():
             return flask.redirect("/")
 
         tempf.seek(0)
-        imgdata=tempf.read()
+        imgdata = tempf.read()
 
-    query="INSERT INTO `posts` (`user_id`, `mime`, `imgdata`, `body`) VALUES (%s,%s,%s,%s)"
-    cursor=db().cursor()
+    query = "INSERT INTO `posts` (`user_id`, `mime`, `imgdata`, `body`) VALUES (%s,%s,%s,%s)"
+    cursor = db().cursor()
     cursor.execute(query, (me["id"], mime, imgdata,
                    flask.request.form.get("body")))
-    pid=cursor.lastrowid
+    pid = cursor.lastrowid
     return flask.redirect("/posts/%d" % pid)
 
 
@@ -480,15 +481,15 @@ def post_index():
 def get_image(id, ext):
     if not id:
         return ""
-    id=int(id)
+    id = int(id)
     if id == 0:
         return ""
 
-    cursor=db().cursor()
+    cursor = db().cursor()
     cursor.execute("SELECT * FROM `posts` WHERE `id` = %s", (id,))
-    post=cursor.fetchone()
+    post = cursor.fetchone()
 
-    mime=post["mime"]
+    mime = post["mime"]
     if (
         ext == "jpg"
         and mime == "image/jpeg"
@@ -504,22 +505,22 @@ def get_image(id, ext):
 
 @ app.route("/comment", methods=["POST"])
 def post_comment():
-    me=get_session_user()
+    me = get_session_user()
     if not me:
         return flask.redirect("/login")
 
     if flask.request.form["csrf_token"] != flask.session["csrf_token"]:
         flask.abort(422)
 
-    post_id=flask.request.form["post_id"]
+    post_id = flask.request.form["post_id"]
     if not re.match(r"[0-9]+", post_id):
         return "post_idは整数のみです"
-    post_id=int(post_id)
+    post_id = int(post_id)
 
-    query=(
+    query = (
         "INSERT INTO `comments` (`post_id`, `user_id`, `comment`) VALUES (%s, %s, %s)"
     )
-    cursor=db().cursor()
+    cursor = db().cursor()
     cursor.execute(query, (post_id, me["id"], flask.request.form["comment"]))
 
     return flask.redirect("/posts/%d" % post_id)
@@ -527,27 +528,27 @@ def post_comment():
 
 @ app.route("/admin/banned")
 def get_banned():
-    me=get_session_user()
+    me = get_session_user()
     if not me:
-        flask.redirect("/login")
+        return flask.redirect("/login")
 
     if me["authority"] == 0:
         flask.abort(403)
 
-    cursor=db().cursor()
+    cursor = db().cursor()
     cursor.execute(
         "SELECT * FROM `users` WHERE `authority` = 0 AND `del_flg` = 0 ORDER BY `created_at` DESC"
     )
-    users=cursor.fetchall()
+    users = cursor.fetchall()
 
-    flask.render_template("banned.html", users=users, me=me)
+    return flask.render_template("banned.html", users=users, me=me)
 
 
 @ app.route("/admin/banned", methods=["POST"])
 def post_banned():
-    me=get_session_user()
+    me = get_session_user()
     if not me:
-        flask.redirect("/login")
+        return flask.redirect("/login")
 
     if me["authority"] == 0:
         flask.abort(403)
@@ -555,8 +556,8 @@ def post_banned():
     if flask.request.form["csrf_token"] != flask.session["csrf_token"]:
         flask.abort(422)
 
-    cursor=db().cursor()
-    query="UPDATE `users` SET `del_flg` = %s WHERE `id` = %s"
+    cursor = db().cursor()
+    query = "UPDATE `users` SET `del_flg` = %s WHERE `id` = %s"
     for id in flask.request.form.getlist("uid", type=int):
         cursor.execute(query, (1, id))
 

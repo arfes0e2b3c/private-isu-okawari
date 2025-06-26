@@ -134,25 +134,27 @@ def make_posts(results, all_comments=False):
     posts = []
     cursor = db().cursor()
 
-    # 投稿IDのリストを作成
-    post_ids = [post["id"] for post in results]
-    if not post_ids:
+    if not results:
         return posts
 
-    # 投稿のユーザー情報を一括取得
-    user_ids = list(set([post["user_id"] for post in results]))
+    # 投稿IDを収集
+    post_ids = [post["id"] for post in results]
+    user_ids = [post["user_id"] for post in results]
+
+    # ユーザー情報を一括取得
     cursor.execute(
         "SELECT * FROM `users` WHERE `id` IN %s",
         (user_ids,)
     )
-    users_dict = {user["id"]: user for user in cursor}
+    users_by_id = {user["id"]: user for user in cursor.fetchall()}
 
     # コメント数を一括取得
     cursor.execute(
         "SELECT `post_id`, COUNT(*) AS `count` FROM `comments` WHERE `post_id` IN %s GROUP BY `post_id`",
         (post_ids,)
     )
-    comment_counts = {row["post_id"]: row["count"] for row in cursor}
+    comment_counts = {row["post_id"]: row["count"]
+                      for row in cursor.fetchall()}
 
     # コメントを一括取得
     if all_comments:
@@ -161,57 +163,62 @@ def make_posts(results, all_comments=False):
             (post_ids,)
         )
     else:
-        # 各投稿の最新3件のコメントを取得（サブクエリを使用）
+        # 各投稿につき最新3件のコメントを取得
         cursor.execute(
             """
-            SELECT c1.* FROM `comments` c1
-            WHERE c1.`post_id` IN %s
-            AND (
-                SELECT COUNT(*) FROM `comments` c2
-                WHERE c2.`post_id` = c1.`post_id`
-                AND c2.`created_at` > c1.`created_at`
-            ) < 3
-            ORDER BY c1.`post_id`, c1.`created_at` DESC
+            SELECT * FROM (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY `post_id` ORDER BY `created_at` DESC) as rn
+                FROM `comments` 
+                WHERE `post_id` IN %s
+            ) ranked 
+            WHERE rn <= 3 
+            ORDER BY `post_id`, `created_at` DESC
             """,
             (post_ids,)
         )
 
-    # コメントを投稿IDごとにグループ化
     comments_by_post = {}
     comment_user_ids = set()
-    for comment in cursor:
-        if comment["post_id"] not in comments_by_post:
-            comments_by_post[comment["post_id"]] = []
-        comments_by_post[comment["post_id"]].append(comment)
+    for comment in cursor.fetchall():
+        post_id = comment["post_id"]
+        if post_id not in comments_by_post:
+            comments_by_post[post_id] = []
+        comments_by_post[post_id].append(comment)
         comment_user_ids.add(comment["user_id"])
 
-    # コメントのユーザー情報を一括取得
+    # コメント作成者の情報を一括取得
     if comment_user_ids:
         cursor.execute(
             "SELECT * FROM `users` WHERE `id` IN %s",
             (list(comment_user_ids),)
         )
-        comment_users_dict = {user["id"]: user for user in cursor}
+        comment_users_by_id = {user["id"]: user for user in cursor.fetchall()}
     else:
-        comment_users_dict = {}
+        comment_users_by_id = {}
 
-    # 投稿データを組み立て
+    # 投稿データを構築
     for post in results:
-        post["user"] = users_dict.get(post["user_id"])
+        post_id = post["id"]
+        user_id = post["user_id"]
 
-        if not post["user"]["del_flg"]:
-            post["comment_count"] = comment_counts.get(post["id"], 0)
+        # コメント数設定
+        post["comment_count"] = comment_counts.get(post_id, 0)
 
-            comments = comments_by_post.get(post["id"], [])
-            for comment in comments:
-                comment["user"] = comment_users_dict.get(comment["user_id"])
-            comments.reverse()  # 作成日時の昇順に並べ替え
-            post["comments"] = comments
+        # コメント設定
+        comments = comments_by_post.get(post_id, [])
+        for comment in comments:
+            comment["user"] = comment_users_by_id.get(comment["user_id"])
+        comments.reverse()
+        post["comments"] = comments
 
+        # 投稿者設定
+        post["user"] = users_by_id.get(user_id)
+
+        if post["user"] and not post["user"]["del_flg"]:
             posts.append(post)
 
-            if len(posts) >= POSTS_PER_PAGE:
-                break
+        if len(posts) >= POSTS_PER_PAGE:
+            break
 
     return posts
 
