@@ -1,3 +1,18 @@
+# 概要
+- private-isuのフォークリポジトリです
+- 25卒の「ISUCON研修おかわり会」というイベントのために用意されたリポジトリです。
+- private-isuに追加して講義に関するスライドやコードがlectureディレクトリに追加されています。
+- 環境構築は[lecture/pre.md](/lecture/pre.md)を元に行なってください。同様にcloud formation用のyamlがlectureディレクトリに用意されているので、それを用いて環境を立ち上げると便利です。
+- cloud formationは、ログの設定だけが行われているbeginnerと基本的なチューニングを終えたadvanceがあるのでお好きな方を使用してください。
+- beginnerの環境はGo、advanceの環境はpythonで立ち上がっているので適宜切り替えていただきたいですが、チューニングはGoでしか行なっていませんので注意してください。
+- beginnerは全てが一つのEC2インスタンスに格納されており、advanceはサーバーが3台構成+ベンチマーカー用のインスタンスが立ち上がります。
+- 初級者はmakefileのコマンドが事前に読み込まれていないのでpart0の[command.md](/lecture/part0/command.md)を参考に設定を行なってください。
+- 当日の講義スライドは[こちら](https://speakerdeck.com/arfes0e2b3c/isuconyan-xiu-okawarihui-jiang-yi-suraido?slide=22)からも見ることができます
+- 継続的なサポートは行いませんので動作に関しては保証できかねます。
+
+---
+
+
 # private-isu
 
 「[ISUCON](https://isucon.net)」は、LINE株式会社の商標または登録商標です。
